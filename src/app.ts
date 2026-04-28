@@ -10,6 +10,7 @@ import adminRoutes from "./routes/admin.routes";
 import productRoutes from "./routes/product.routes";
 import orderRoutes from "./routes/order.routes";
 import paymentRoutes from "./routes/payment.routes";
+import { getLandingPage } from "./controllers/content.controller";
 
 const app: Application = express();
 
@@ -61,6 +62,9 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/payment", paymentRoutes);
+
+// GET /api/content — landing page publik (semua section sekaligus)
+app.get("/api/content", getLandingPage);
 
 // ==========================================
 // 404 HANDLER

@@ -2,7 +2,7 @@
 // API RESPONSE TYPES
 // ==========================================
 
-export interface ApiResponse<T = null> {
+export interface ApiResponse<T = unknown> {
   success: boolean;
   message: string;
   data?: T;
