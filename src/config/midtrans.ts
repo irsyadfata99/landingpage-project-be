@@ -1,4 +1,4 @@
-import midtransClient from "midtrans-client";
+import { CoreApi, Snap } from "midtrans-client";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -6,14 +6,14 @@ dotenv.config();
 const isProduction = process.env.MIDTRANS_IS_PRODUCTION === "true";
 
 // Core API — untuk membuat transaksi VA dan QRIS
-export const coreApi = new midtransClient.CoreApi({
+export const coreApi = new CoreApi({
   isProduction,
   serverKey: process.env.MIDTRANS_SERVER_KEY ?? "",
   clientKey: process.env.MIDTRANS_CLIENT_KEY ?? "",
 });
 
 // Snap — opsional, jika suatu saat ingin pakai Snap popup
-export const snap = new midtransClient.Snap({
+export const snap = new Snap({
   isProduction,
   serverKey: process.env.MIDTRANS_SERVER_KEY ?? "",
   clientKey: process.env.MIDTRANS_CLIENT_KEY ?? "",

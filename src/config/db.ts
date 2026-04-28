@@ -45,7 +45,7 @@ export const query = async (text: string, params?: unknown[]) => {
 
 // Helper: transaksi (BEGIN → COMMIT / ROLLBACK)
 export const transaction = async <T>(
-  callback: (client: Awaited<ReturnType<typeof pool.connect>>) => Promise<T>,
+  callback: (client: import("pg").PoolClient) => Promise<T>,
 ): Promise<T> => {
   const client = await pool.connect();
   try {
