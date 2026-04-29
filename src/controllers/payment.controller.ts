@@ -9,6 +9,7 @@ import {
   BankTransferResponse,
   QrisResponse,
 } from "midtrans-client";
+import { sendPaymentSuccessEmail } from "../services/email.service";
 
 // ==========================================
 // POST /api/payment/charge (public)
@@ -146,7 +147,7 @@ export const chargePayment = async (
       let qrImageUrl = "";
       if (chargeResult.actions?.length) {
         const generateAction = chargeResult.actions.find(
-          (a) => a.name === "generate-qr-code",
+          (a: { name: string; url: string }) => a.name === "generate-qr-code",
         );
         qrImageUrl = generateAction?.url ?? "";
       }
@@ -224,6 +225,21 @@ export const handleWebhook = async (
         await query(
           `UPDATE orders SET status = 'PAID', paid_at = NOW() WHERE id = $1`,
           [order.id],
+        );
+
+        // Kirim email nota (non-blocking)
+        const updatedOrder = await query("SELECT * FROM orders WHERE id = $1", [
+          order.id,
+        ]);
+        const itemsResult = await query(
+          "SELECT * FROM order_items WHERE order_id = $1",
+          [order.id],
+        );
+        sendPaymentSuccessEmail({
+          ...updatedOrder.rows[0],
+          items: itemsResult.rows,
+        }).catch((err) =>
+          console.error("Gagal kirim email payment success:", err),
         );
       }
     } else if (["cancel", "deny", "expire"].includes(transaction_status)) {

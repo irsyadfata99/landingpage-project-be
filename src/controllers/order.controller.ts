@@ -6,6 +6,10 @@ import {
   UpdateTrackingBody,
 } from "../types/order.types";
 import { ApiResponse, PaginatedResponse } from "../types/response.types";
+import {
+  sendShippingEmail,
+  sendDeliveryConfirmEmail,
+} from "../services/email.service";
 
 // ==========================================
 // HELPER: generate order code
@@ -425,10 +429,20 @@ export const updateTracking = async (
       return;
     }
 
+    // Kirim email notifikasi pengiriman (non-blocking)
+    const updatedOrder = result.rows[0];
+    const itemsResult = await query(
+      "SELECT * FROM order_items WHERE order_id = $1",
+      [updatedOrder.id],
+    );
+    sendShippingEmail({ ...updatedOrder, items: itemsResult.rows }).catch(
+      (err) => console.error("Gagal kirim email pengiriman:", err),
+    );
+
     res.json({
       success: true,
       message: "Nomor resi berhasil diinput",
-      data: result.rows[0],
+      data: updatedOrder,
     });
   } catch (err) {
     console.error("updateTracking error:", err);
@@ -462,13 +476,49 @@ export const confirmDelivery = async (
       return;
     }
 
+    // Kirim email konfirmasi diterima (non-blocking)
+    const confirmedOrder = result.rows[0];
+    const itemsResult = await query(
+      "SELECT * FROM order_items WHERE order_id = $1",
+      [confirmedOrder.id],
+    );
+    sendDeliveryConfirmEmail({
+      ...confirmedOrder,
+      items: itemsResult.rows,
+    }).catch((err) => console.error("Gagal kirim email konfirmasi:", err));
+
     res.json({
       success: true,
       message: "Pesanan berhasil dikonfirmasi",
-      data: result.rows[0],
+      data: confirmedOrder,
     });
   } catch (err) {
     console.error("confirmDelivery error:", err);
     res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+// ==========================================
+// GET /api/admin/orders/export (admin)
+// Export orders ke Excel
+// ==========================================
+export const exportOrders = async (
+  req: Request<object, object, object, OrderFilter>,
+  res: Response,
+): Promise<void> => {
+  try {
+    const { exportOrdersToExcel } = await import("../services/export.service");
+    const buffer = await exportOrdersToExcel(req.query);
+
+    const filename = `orders-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(Buffer.from(buffer as ArrayBuffer));
+  } catch (err) {
+    console.error("exportOrders error:", err);
+    res.status(500).json({ success: false, message: "Gagal export data" });
   }
 };

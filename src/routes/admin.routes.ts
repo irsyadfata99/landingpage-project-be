@@ -40,6 +40,7 @@ import {
   updateOrderStatus,
   updateTracking,
 } from "../controllers/order.controller";
+import { exportOrders } from "../controllers/order.controller";
 import { authMiddleware } from "../middlewares/auth.middleware";
 import { uploadSingle } from "../middlewares/upload.middleware";
 import multer from "multer";
@@ -126,6 +127,7 @@ router.patch("/expeditions/:id/toggle", toggleExpedition);
 // ORDERS
 // ==========================================
 router.get("/orders", getAllOrders);
+router.get("/orders/export", exportOrders);
 router.get("/orders/:id", getOrderById);
 router.patch("/orders/:id/status", updateOrderStatus);
 router.patch("/orders/:id/tracking", updateTracking);
