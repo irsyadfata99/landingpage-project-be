@@ -2,7 +2,7 @@
 // CONTENT TYPES (Landing Page Sections)
 // ==========================================
 
-// --- GLOBAL / SITEWIDE ---
+// --- SITE CONFIG ---
 export interface SiteConfig {
   id: string;
   brand_name: string;
@@ -10,6 +10,8 @@ export interface SiteConfig {
   favicon_url: string | null;
   primary_color: string;
   secondary_color: string;
+  font_family: string; // nama font Google Fonts, contoh: 'Inter'
+  font_url: string; // URL embed Google Fonts
   meta_title: string;
   meta_description: string;
   og_image_url: string | null;
@@ -20,6 +22,8 @@ export interface UpdateSiteConfigBody {
   brand_name?: string;
   primary_color?: string;
   secondary_color?: string;
+  font_family?: string;
+  font_url?: string;
   meta_title?: string;
   meta_description?: string;
 }
@@ -72,7 +76,7 @@ export interface PricingItem {
   name: string;
   price: number;
   original_price: number | null;
-  features: string[]; // array of feature strings
+  features: string[];
   is_popular: boolean;
   cta_text: string;
   is_active: boolean;
@@ -93,7 +97,7 @@ export interface CreatePricingBody {
 
 export interface UpdatePricingBody extends Partial<CreatePricingBody> {}
 
-// --- TESTIMONI ---
+// --- TESTIMONIAL ---
 export interface Testimonial {
   id: string;
   customer_name: string;
@@ -183,7 +187,7 @@ export interface UpdateExpeditionBody extends Partial<CreateExpeditionBody> {}
 
 // --- LANDING PAGE (semua section sekaligus untuk public API) ---
 export interface LandingPageData {
-  site_config: SiteConfig;
+  site_config: SiteConfig | null;
   hero: HeroSection | null;
   promo: PromoSection | null;
   pricing: PricingItem[];

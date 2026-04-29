@@ -8,7 +8,7 @@ import { ApiResponse } from "../types/response.types";
 import { deleteFile, getFileUrl } from "../middlewares/upload.middleware";
 
 // ==========================================
-// GET /api/expeditions (public)
+// GET /api/products/expeditions (public)
 // ==========================================
 export const getPublicExpeditions = async (
   _req: Request,
@@ -69,13 +69,11 @@ export const createExpedition = async (
       [name, logo_url, description ?? null, is_active ?? true, sort_order ?? 0],
     );
 
-    res
-      .status(201)
-      .json({
-        success: true,
-        message: "Ekspedisi berhasil dibuat",
-        data: result.rows[0],
-      });
+    res.status(201).json({
+      success: true,
+      message: "Ekspedisi berhasil dibuat",
+      data: result.rows[0],
+    });
   } catch (err) {
     console.error("createExpedition error:", err);
     res.status(500).json({ success: false, message: "Internal server error" });
@@ -145,14 +143,12 @@ export const deleteExpedition = async (
       "DELETE FROM expeditions WHERE id = $1 RETURNING logo_url",
       [req.params.id],
     );
-
     if (result.rowCount === 0) {
       res
         .status(404)
         .json({ success: false, message: "Ekspedisi tidak ditemukan" });
       return;
     }
-
     if (result.rows[0].logo_url) deleteFile(result.rows[0].logo_url);
     res.json({ success: true, message: "Ekspedisi berhasil dihapus" });
   } catch (err) {
@@ -174,14 +170,12 @@ export const toggleExpedition = async (
        WHERE id = $1 RETURNING id, name, is_active`,
       [req.params.id],
     );
-
     if (result.rowCount === 0) {
       res
         .status(404)
         .json({ success: false, message: "Ekspedisi tidak ditemukan" });
       return;
     }
-
     const { name, is_active } = result.rows[0];
     res.json({
       success: true,

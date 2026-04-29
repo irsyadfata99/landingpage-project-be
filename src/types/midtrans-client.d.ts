@@ -116,7 +116,7 @@ declare module "midtrans-client" {
     transaction_status: string;
     transaction_time: string;
     acquirer: string;
-    actions: QrisAction[]; // berisi URL QR code image
+    actions: QrisAction[];
     qr_string?: string;
     [key: string]: unknown;
   }
@@ -127,8 +127,8 @@ declare module "midtrans-client" {
   // NOTIFICATION WEBHOOK
   // ==========================================
   interface NotificationBody {
-    transaction_status: string; // 'settlement' | 'pending' | 'deny' | 'expire' | 'cancel'
-    fraud_status?: string; // 'accept' | 'challenge' | 'deny'
+    transaction_status: string;
+    fraud_status?: string;
     order_id: string;
     gross_amount: string;
     payment_type: string;

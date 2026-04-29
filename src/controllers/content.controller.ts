@@ -61,6 +61,7 @@ export const getLandingPage = async (
 
 // ==========================================
 // SITE CONFIG
+// PUT /api/admin/content/site-config
 // ==========================================
 export const updateSiteConfig = async (
   req: Request<object, object, UpdateSiteConfigBody>,
@@ -73,7 +74,6 @@ export const updateSiteConfig = async (
     let logo_url = old?.logo_url;
     let favicon_url = old?.favicon_url;
 
-    // Handle multiple file fields via req.files
     const files = req.files as
       | { [fieldname: string]: Express.Multer.File[] }
       | undefined;
@@ -90,6 +90,8 @@ export const updateSiteConfig = async (
       brand_name,
       primary_color,
       secondary_color,
+      font_family,
+      font_url,
       meta_title,
       meta_description,
     } = req.body;
@@ -97,14 +99,19 @@ export const updateSiteConfig = async (
     let result;
     if (!old) {
       result = await query(
-        `INSERT INTO site_config (brand_name, logo_url, favicon_url, primary_color, secondary_color, meta_title, meta_description)
-         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+        `INSERT INTO site_config
+          (brand_name, logo_url, favicon_url, primary_color, secondary_color,
+           font_family, font_url, meta_title, meta_description)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
         [
           brand_name,
           logo_url,
           favicon_url,
           primary_color,
           secondary_color,
+          font_family ?? "Inter",
+          font_url ??
+            "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap",
           meta_title,
           meta_description,
         ],
@@ -114,14 +121,17 @@ export const updateSiteConfig = async (
         `UPDATE site_config SET
           brand_name = $1, logo_url = $2, favicon_url = $3,
           primary_color = $4, secondary_color = $5,
-          meta_title = $6, meta_description = $7
-         WHERE id = $8 RETURNING *`,
+          font_family = $6, font_url = $7,
+          meta_title = $8, meta_description = $9
+         WHERE id = $10 RETURNING *`,
         [
           brand_name ?? old.brand_name,
           logo_url,
           favicon_url,
           primary_color ?? old.primary_color,
           secondary_color ?? old.secondary_color,
+          font_family ?? old.font_family,
+          font_url ?? old.font_url,
           meta_title ?? old.meta_title,
           meta_description ?? old.meta_description,
           old.id,
@@ -142,6 +152,7 @@ export const updateSiteConfig = async (
 
 // ==========================================
 // HERO SECTION
+// PUT /api/admin/content/hero
 // ==========================================
 export const updateHero = async (
   req: Request<object, object, UpdateHeroBody>,
@@ -203,6 +214,7 @@ export const updateHero = async (
 
 // ==========================================
 // PROMO SECTION
+// PUT /api/admin/content/promo
 // ==========================================
 export const updatePromo = async (
   req: Request<object, object, UpdatePromoBody>,
@@ -223,7 +235,8 @@ export const updatePromo = async (
     let result;
     if (!old) {
       result = await query(
-        `INSERT INTO promo_section (badge_text, title, description, image_url, start_date, end_date, is_active)
+        `INSERT INTO promo_section
+          (badge_text, title, description, image_url, start_date, end_date, is_active)
          VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
         [
           badge_text,
@@ -267,6 +280,10 @@ export const updatePromo = async (
 
 // ==========================================
 // PRICING ITEMS
+// GET    /api/admin/content/pricing
+// POST   /api/admin/content/pricing
+// PUT    /api/admin/content/pricing/:id
+// DELETE /api/admin/content/pricing/:id
 // ==========================================
 export const getPricing = async (
   _req: Request,
@@ -298,14 +315,18 @@ export const createPricing = async (
       is_active,
       sort_order,
     } = req.body;
+
     if (!name || price === undefined || !features) {
-      res
-        .status(400)
-        .json({ success: false, message: "name, price, features wajib diisi" });
+      res.status(400).json({
+        success: false,
+        message: "name, price, features wajib diisi",
+      });
       return;
     }
+
     const result = await query(
-      `INSERT INTO pricing_items (name, price, original_price, features, is_popular, cta_text, is_active, sort_order)
+      `INSERT INTO pricing_items
+        (name, price, original_price, features, is_popular, cta_text, is_active, sort_order)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
       [
         name,
@@ -318,13 +339,12 @@ export const createPricing = async (
         sort_order ?? 0,
       ],
     );
-    res
-      .status(201)
-      .json({
-        success: true,
-        message: "Pricing berhasil dibuat",
-        data: result.rows[0],
-      });
+
+    res.status(201).json({
+      success: true,
+      message: "Pricing berhasil dibuat",
+      data: result.rows[0],
+    });
   } catch (err) {
     console.error("createPricing error:", err);
     res.status(500).json({ success: false, message: "Internal server error" });
@@ -356,8 +376,10 @@ export const updatePricing = async (
       is_active,
       sort_order,
     } = req.body;
+
     const result = await query(
-      `UPDATE pricing_items SET name=$1, price=$2, original_price=$3, features=$4,
+      `UPDATE pricing_items SET
+        name=$1, price=$2, original_price=$3, features=$4,
         is_popular=$5, cta_text=$6, is_active=$7, sort_order=$8
        WHERE id = $9 RETURNING *`,
       [
@@ -372,6 +394,7 @@ export const updatePricing = async (
         req.params.id,
       ],
     );
+
     res.json({
       success: true,
       message: "Pricing berhasil diupdate",
@@ -407,6 +430,10 @@ export const deletePricing = async (
 
 // ==========================================
 // TESTIMONIALS
+// GET    /api/admin/content/testimonials
+// POST   /api/admin/content/testimonials
+// PUT    /api/admin/content/testimonials/:id
+// DELETE /api/admin/content/testimonials/:id
 // ==========================================
 export const getTestimonials = async (
   _req: Request,
@@ -436,18 +463,20 @@ export const createTestimonial = async (
       is_active,
       sort_order,
     } = req.body;
+
     if (!customer_name || !content || rating === undefined) {
-      res
-        .status(400)
-        .json({
-          success: false,
-          message: "customer_name, content, rating wajib diisi",
-        });
+      res.status(400).json({
+        success: false,
+        message: "customer_name, content, rating wajib diisi",
+      });
       return;
     }
+
     const photo_url = req.file ? getFileUrl(req.file.filename) : null;
+
     const result = await query(
-      `INSERT INTO testimonials (customer_name, customer_photo_url, content, rating, testimonial_date, is_active, sort_order)
+      `INSERT INTO testimonials
+        (customer_name, customer_photo_url, content, rating, testimonial_date, is_active, sort_order)
        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
       [
         customer_name,
@@ -459,13 +488,12 @@ export const createTestimonial = async (
         sort_order ?? 0,
       ],
     );
-    res
-      .status(201)
-      .json({
-        success: true,
-        message: "Testimoni berhasil dibuat",
-        data: result.rows[0],
-      });
+
+    res.status(201).json({
+      success: true,
+      message: "Testimoni berhasil dibuat",
+      data: result.rows[0],
+    });
   } catch (err) {
     console.error("createTestimonial error:", err);
     res.status(500).json({ success: false, message: "Internal server error" });
@@ -503,7 +531,8 @@ export const updateTestimonial = async (
     }
 
     const result = await query(
-      `UPDATE testimonials SET customer_name=$1, customer_photo_url=$2, content=$3,
+      `UPDATE testimonials SET
+        customer_name=$1, customer_photo_url=$2, content=$3,
         rating=$4, testimonial_date=$5, is_active=$6, sort_order=$7
        WHERE id = $8 RETURNING *`,
       [
@@ -517,6 +546,7 @@ export const updateTestimonial = async (
         req.params.id,
       ],
     );
+
     res.json({
       success: true,
       message: "Testimoni berhasil diupdate",
@@ -554,6 +584,10 @@ export const deleteTestimonial = async (
 
 // ==========================================
 // FAQ
+// GET    /api/admin/content/faqs
+// POST   /api/admin/content/faqs
+// PUT    /api/admin/content/faqs/:id
+// DELETE /api/admin/content/faqs/:id
 // ==========================================
 export const getFAQs = async (
   _req: Request,
@@ -574,23 +608,26 @@ export const createFAQ = async (
 ): Promise<void> => {
   try {
     const { question, answer, is_active, sort_order } = req.body;
+
     if (!question || !answer) {
-      res
-        .status(400)
-        .json({ success: false, message: "question dan answer wajib diisi" });
+      res.status(400).json({
+        success: false,
+        message: "question dan answer wajib diisi",
+      });
       return;
     }
+
     const result = await query(
-      `INSERT INTO faqs (question, answer, is_active, sort_order) VALUES ($1,$2,$3,$4) RETURNING *`,
+      `INSERT INTO faqs (question, answer, is_active, sort_order)
+       VALUES ($1,$2,$3,$4) RETURNING *`,
       [question, answer, is_active ?? true, sort_order ?? 0],
     );
-    res
-      .status(201)
-      .json({
-        success: true,
-        message: "FAQ berhasil dibuat",
-        data: result.rows[0],
-      });
+
+    res.status(201).json({
+      success: true,
+      message: "FAQ berhasil dibuat",
+      data: result.rows[0],
+    });
   } catch (err) {
     console.error("createFAQ error:", err);
     res.status(500).json({ success: false, message: "Internal server error" });
@@ -611,6 +648,7 @@ export const updateFAQ = async (
     }
     const old = existing.rows[0];
     const { question, answer, is_active, sort_order } = req.body;
+
     const result = await query(
       `UPDATE faqs SET question=$1, answer=$2, is_active=$3, sort_order=$4
        WHERE id = $5 RETURNING *`,
@@ -622,6 +660,7 @@ export const updateFAQ = async (
         req.params.id,
       ],
     );
+
     res.json({
       success: true,
       message: "FAQ berhasil diupdate",
@@ -654,6 +693,7 @@ export const deleteFAQ = async (
 
 // ==========================================
 // CONTACT PERSON
+// PUT /api/admin/content/contact
 // ==========================================
 export const updateContactPerson = async (
   req: Request<object, object, UpdateContactPersonBody>,
@@ -681,7 +721,8 @@ export const updateContactPerson = async (
     let result;
     if (!old) {
       result = await query(
-        `INSERT INTO contact_person (name, whatsapp_number, email, photo_url, cta_text, instagram_url, tiktok_url, is_active)
+        `INSERT INTO contact_person
+          (name, whatsapp_number, email, photo_url, cta_text, instagram_url, tiktok_url, is_active)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
         [
           name,
@@ -696,7 +737,8 @@ export const updateContactPerson = async (
       );
     } else {
       result = await query(
-        `UPDATE contact_person SET name=$1, whatsapp_number=$2, email=$3, photo_url=$4,
+        `UPDATE contact_person SET
+          name=$1, whatsapp_number=$2, email=$3, photo_url=$4,
           cta_text=$5, instagram_url=$6, tiktok_url=$7, is_active=$8
          WHERE id = $9 RETURNING *`,
         [

@@ -9,14 +9,14 @@ export interface Product {
   name: string;
   description: string | null;
   price: number;
-  original_price: number | null; // harga coret
+  original_price: number | null;
   product_type: ProductType;
   stock: number | null; // null = unlimited (untuk digital)
   image_url: string | null;
   download_url: string | null; // untuk produk digital
   download_expires_hours: number; // berapa jam link download aktif
-  is_active: boolean; // tampil di checkout atau tidak
-  sort_order: number; // urutan tampil di checkout
+  is_active: boolean;
+  sort_order: number;
   created_at: Date;
   updated_at: Date;
 }
@@ -36,7 +36,7 @@ export interface CreateProductBody {
 
 export interface UpdateProductBody extends Partial<CreateProductBody> {}
 
-// Product yang ditampilkan ke customer (data terbatas)
+// Product yang ditampilkan ke customer (data terbatas, tanpa download_url)
 export interface PublicProduct {
   id: string;
   name: string;

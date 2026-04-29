@@ -52,9 +52,10 @@ export const chargePayment = async (
     const order = orderResult.rows[0];
 
     if (order.status !== "PENDING") {
-      res
-        .status(400)
-        .json({ success: false, message: "Order sudah diproses sebelumnya" });
+      res.status(400).json({
+        success: false,
+        message: "Order sudah diproses sebelumnya",
+      });
       return;
     }
 
@@ -177,14 +178,17 @@ export const chargePayment = async (
       .json({ success: false, message: "Metode pembayaran tidak didukung" });
   } catch (err) {
     console.error("chargePayment error:", err);
-    res
-      .status(500)
-      .json({ success: false, message: "Gagal membuat transaksi pembayaran" });
+    res.status(500).json({
+      success: false,
+      message: "Gagal membuat transaksi pembayaran",
+    });
   }
 };
 
 // ==========================================
 // POST /api/payment/webhook (Midtrans callback)
+// Status PAID di-set di sini → timestamp paid_at
+// otomatis via DB trigger
 // ==========================================
 export const handleWebhook = async (
   req: Request,
@@ -197,6 +201,7 @@ export const handleWebhook = async (
     const statusResponse = (await coreApi.transaction.notification(
       notification,
     )) as NotificationBody;
+
     const { order_id, transaction_status, fraud_status } = statusResponse;
 
     const orderResult = await query(
@@ -218,14 +223,15 @@ export const handleWebhook = async (
       transaction_status === "settlement"
     ) {
       if (fraud_status === "challenge") {
-        await query(`UPDATE orders SET status = 'PENDING' WHERE id = $1`, [
+        // Biarkan tetap PENDING, tunggu review manual
+        console.warn(
+          `⚠️  Order ${order.order_code} flagged as challenge fraud`,
+        );
+      } else if (order.status === "PENDING") {
+        // PENDING → PAID (paid_at di-set oleh DB trigger)
+        await query(`UPDATE orders SET status = 'PAID' WHERE id = $1`, [
           order.id,
         ]);
-      } else {
-        await query(
-          `UPDATE orders SET status = 'PAID', paid_at = NOW() WHERE id = $1`,
-          [order.id],
-        );
 
         // Kirim email nota (non-blocking)
         const updatedOrder = await query("SELECT * FROM orders WHERE id = $1", [
@@ -243,9 +249,11 @@ export const handleWebhook = async (
         );
       }
     } else if (["cancel", "deny", "expire"].includes(transaction_status)) {
-      await query(`UPDATE orders SET status = 'PENDING' WHERE id = $1`, [
-        order.id,
-      ]);
+      // Midtrans expire/cancel — biarkan tetap PENDING
+      // (tidak ada cancel di sisi kita, hanya dari Midtrans)
+      console.warn(
+        `⚠️  Midtrans transaction ${transaction_status} untuk order ${order.order_code}`,
+      );
     }
 
     res.json({ success: true, message: "Webhook diproses" });

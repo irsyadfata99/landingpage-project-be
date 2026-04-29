@@ -39,8 +39,27 @@ import {
   getOrderById,
   updateOrderStatus,
   updateTracking,
+  markAsDelivered,
+  exportOrders,
 } from "../controllers/order.controller";
-import { exportOrders } from "../controllers/order.controller";
+import {
+  getAllEmailTemplates,
+  getEmailTemplateByType,
+  updateEmailTemplate,
+  getTemplateVars,
+} from "../controllers/email-template.controller";
+import {
+  getAllBankAccounts,
+  createBankAccount,
+  updateBankAccount,
+  deleteBankAccount,
+  activateBankAccount,
+  getWithdrawalSettings,
+  updateWithdrawalSettings,
+  getWithdrawalHistory,
+  requestWithdrawal,
+  updateWithdrawalStatus,
+} from "../controllers/withdrawal.controller";
 import { authMiddleware } from "../middlewares/auth.middleware";
 import { uploadSingle } from "../middlewares/upload.middleware";
 import multer from "multer";
@@ -92,7 +111,7 @@ router.post("/content/pricing", createPricing);
 router.put("/content/pricing/:id", updatePricing);
 router.delete("/content/pricing/:id", deletePricing);
 
-// Testimoni
+// Testimonial
 router.get("/content/testimonials", getTestimonials);
 router.post("/content/testimonials", uploadSingle, createTestimonial);
 router.put("/content/testimonials/:id", uploadSingle, updateTestimonial);
@@ -103,6 +122,14 @@ router.get("/content/faqs", getFAQs);
 router.post("/content/faqs", createFAQ);
 router.put("/content/faqs/:id", updateFAQ);
 router.delete("/content/faqs/:id", deleteFAQ);
+
+// ==========================================
+// EMAIL TEMPLATES
+// ==========================================
+router.get("/email-templates", getAllEmailTemplates);
+router.get("/email-templates/:type", getEmailTemplateByType);
+router.put("/email-templates/:type", updateEmailTemplate);
+router.get("/email-templates/:type/vars", getTemplateVars);
 
 // ==========================================
 // PRODUCTS
@@ -131,5 +158,24 @@ router.get("/orders/export", exportOrders);
 router.get("/orders/:id", getOrderById);
 router.patch("/orders/:id/status", updateOrderStatus);
 router.patch("/orders/:id/tracking", updateTracking);
+router.patch("/orders/:id/delivered", markAsDelivered);
+
+// ==========================================
+// BANK ACCOUNTS
+// ==========================================
+router.get("/bank-accounts", getAllBankAccounts);
+router.post("/bank-accounts", createBankAccount);
+router.put("/bank-accounts/:id", updateBankAccount);
+router.delete("/bank-accounts/:id", deleteBankAccount);
+router.patch("/bank-accounts/:id/activate", activateBankAccount);
+
+// ==========================================
+// WITHDRAWAL
+// ==========================================
+router.get("/withdrawal/settings", getWithdrawalSettings);
+router.put("/withdrawal/settings", updateWithdrawalSettings);
+router.get("/withdrawal/history", getWithdrawalHistory);
+router.post("/withdrawal/request", requestWithdrawal);
+router.patch("/withdrawal/:id/status", updateWithdrawalStatus);
 
 export default router;

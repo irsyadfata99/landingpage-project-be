@@ -22,6 +22,11 @@ export interface AdminTokenPayload {
   username: string;
 }
 
+export interface ChangePasswordBody {
+  old_password: string;
+  new_password: string;
+}
+
 // Extend Express Request untuk admin auth
 declare global {
   namespace Express {

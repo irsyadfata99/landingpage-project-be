@@ -4,6 +4,9 @@ import {
   CreateOrderBody,
   OrderFilter,
   UpdateTrackingBody,
+  UpdateOrderStatusBody,
+  OrderStatus,
+  VALID_STATUS_TRANSITIONS,
 } from "../types/order.types";
 import { ApiResponse, PaginatedResponse } from "../types/response.types";
 import {
@@ -42,6 +45,7 @@ export const createOrder = async (
       bank,
       items,
       notes,
+      no_cancel_ack,
     } = req.body;
 
     // Validasi field wajib
@@ -52,24 +56,33 @@ export const createOrder = async (
       !payment_method ||
       !items?.length
     ) {
-      res
-        .status(400)
-        .json({
-          success: false,
-          message: "Data customer dan items wajib diisi",
-        });
+      res.status(400).json({
+        success: false,
+        message: "Data customer dan items wajib diisi",
+      });
+      return;
+    }
+
+    // Customer harus acknowledge tidak bisa cancel/refund
+    if (!no_cancel_ack) {
+      res.status(400).json({
+        success: false,
+        message:
+          "Anda harus menyetujui bahwa pesanan tidak dapat dibatalkan atau di-refund",
+      });
       return;
     }
 
     if (payment_method === "bank_transfer" && !bank) {
-      res
-        .status(400)
-        .json({ success: false, message: "Bank wajib dipilih untuk transfer" });
+      res.status(400).json({
+        success: false,
+        message: "Bank wajib dipilih untuk transfer",
+      });
       return;
     }
 
     const order = await transaction(async (client) => {
-      // 1. Ambil data produk dan validasi stok
+      // 1. Ambil data produk dan validasi
       const productIds = items.map((i) => i.product_id);
       const productsResult = await client.query(
         `SELECT * FROM products WHERE id = ANY($1::uuid[]) AND is_active = TRUE`,
@@ -89,14 +102,12 @@ export const createOrder = async (
         if (!product)
           throw new Error(`Produk ${item.product_id} tidak ditemukan`);
 
-        // Cek stok untuk produk fisik
         if (product.stock !== null && product.stock < item.quantity) {
           throw new Error(`Stok produk "${product.name}" tidak mencukupi`);
         }
 
         const subtotal = product.price * item.quantity;
         totalAmount += subtotal;
-
         return { product, quantity: item.quantity, subtotal };
       });
 
@@ -127,8 +138,9 @@ export const createOrder = async (
         `INSERT INTO orders (
           order_code, customer_name, customer_email, customer_phone,
           customer_address, customer_city, customer_province, customer_postal_code,
-          total_amount, expedition_id, expedition_name, payment_method, payment_bank, notes
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+          total_amount, expedition_id, expedition_name,
+          payment_method, payment_bank, notes, no_cancel_ack
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
         [
           orderCode,
           customer_name,
@@ -144,6 +156,7 @@ export const createOrder = async (
           payment_method,
           bank ?? null,
           notes ?? null,
+          true, // no_cancel_ack sudah divalidasi di atas
         ],
       );
 
@@ -153,7 +166,6 @@ export const createOrder = async (
       for (const item of orderItems) {
         const { product, quantity, subtotal } = item;
 
-        // Hitung download_expires_at untuk produk digital
         let downloadExpiresAt = null;
         if (
           product.product_type === "DIGITAL" ||
@@ -182,7 +194,6 @@ export const createOrder = async (
           ],
         );
 
-        // Kurangi stok jika bukan unlimited
         if (product.stock !== null) {
           await client.query(
             "UPDATE products SET stock = stock - $1 WHERE id = $2",
@@ -217,8 +228,8 @@ export const trackOrder = async (
   try {
     const orderResult = await query(
       `SELECT id, order_code, customer_name, status, total_amount,
-              expedition_name, tracking_number, payment_method,
-              payment_bank, paid_at, shipped_at, delivered_at, confirmed_at, created_at
+              expedition_name, tracking_number, payment_method, payment_bank,
+              paid_at, shipped_at, delivered_at, confirmed_at, created_at
        FROM orders WHERE order_code = $1`,
       [req.params.orderCode],
     );
@@ -232,7 +243,8 @@ export const trackOrder = async (
 
     const order = orderResult.rows[0];
     const itemsResult = await query(
-      `SELECT product_name, product_type, quantity, price, subtotal FROM order_items WHERE order_id = $1`,
+      `SELECT product_name, product_type, quantity, price, subtotal
+       FROM order_items WHERE order_id = $1`,
       [order.id],
     );
 
@@ -350,38 +362,50 @@ export const getOrderById = async (
 
 // ==========================================
 // PATCH /api/admin/orders/:id/status (admin)
+// Validasi transisi status sebelum update
+// Timestamp otomatis di-set via DB trigger
 // ==========================================
 export const updateOrderStatus = async (
-  req: Request<{ id: string }, object, { status: string }>,
+  req: Request<{ id: string }, object, UpdateOrderStatusBody>,
   res: Response<ApiResponse>,
 ): Promise<void> => {
   try {
-    const validStatuses = [
-      "PENDING",
-      "PAID",
-      "PROCESSING",
-      "SHIPPED",
-      "DELIVERED",
-      "DONE",
-    ];
     const { status } = req.body;
 
-    if (!validStatuses.includes(status)) {
-      res.status(400).json({ success: false, message: "Status tidak valid" });
+    if (!status) {
+      res.status(400).json({ success: false, message: "Status wajib diisi" });
       return;
     }
 
-    const result = await query(
-      `UPDATE orders SET status = $1 WHERE id = $2 RETURNING *`,
-      [status, req.params.id],
+    // Ambil status saat ini
+    const existing = await query(
+      "SELECT id, status FROM orders WHERE id = $1",
+      [req.params.id],
     );
-
-    if (result.rowCount === 0) {
+    if (existing.rowCount === 0) {
       res
         .status(404)
         .json({ success: false, message: "Order tidak ditemukan" });
       return;
     }
+
+    const currentStatus = existing.rows[0].status as OrderStatus;
+
+    // Validasi transisi di sisi aplikasi (sebelum hit DB trigger)
+    const expectedNext = VALID_STATUS_TRANSITIONS[currentStatus];
+    if (expectedNext !== status) {
+      res.status(400).json({
+        success: false,
+        message: `Transisi status tidak valid: ${currentStatus} → ${status}. Status berikutnya yang valid: ${expectedNext ?? "tidak ada (status final)"}`,
+      });
+      return;
+    }
+
+    // Update — timestamp otomatis di-set oleh DB trigger enforce_order_status_transition
+    const result = await query(
+      `UPDATE orders SET status = $1 WHERE id = $2 RETURNING *`,
+      [status, req.params.id],
+    );
 
     res.json({
       success: true,
@@ -389,14 +413,18 @@ export const updateOrderStatus = async (
       data: result.rows[0],
     });
   } catch (err) {
+    // Tangkap juga error dari DB trigger
+    const message =
+      err instanceof Error ? err.message : "Internal server error";
     console.error("updateOrderStatus error:", err);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    res.status(400).json({ success: false, message });
   }
 };
 
 // ==========================================
 // PATCH /api/admin/orders/:id/tracking (admin)
-// Input resi — trigger email ke customer
+// Input resi → otomatis set status SHIPPED
+// Hanya bisa dilakukan saat status PROCESSING
 // ==========================================
 export const updateTracking = async (
   req: Request<{ id: string }, object, UpdateTrackingBody>,
@@ -412,22 +440,34 @@ export const updateTracking = async (
       return;
     }
 
-    const result = await query(
-      `UPDATE orders SET
-        tracking_number = $1,
-        expedition_name = COALESCE($2, expedition_name),
-        status = 'SHIPPED',
-        shipped_at = NOW()
-       WHERE id = $3 RETURNING *`,
-      [tracking_number, expedition_name ?? null, req.params.id],
+    // Validasi: hanya bisa input resi saat status PROCESSING
+    const existing = await query(
+      "SELECT id, status FROM orders WHERE id = $1",
+      [req.params.id],
     );
-
-    if (result.rowCount === 0) {
+    if (existing.rowCount === 0) {
       res
         .status(404)
         .json({ success: false, message: "Order tidak ditemukan" });
       return;
     }
+    if (existing.rows[0].status !== "PROCESSING") {
+      res.status(400).json({
+        success: false,
+        message: `Nomor resi hanya bisa diinput saat status PROCESSING. Status saat ini: ${existing.rows[0].status}`,
+      });
+      return;
+    }
+
+    // Update resi + status SHIPPED (shipped_at di-set oleh DB trigger)
+    const result = await query(
+      `UPDATE orders SET
+        tracking_number = $1,
+        expedition_name = COALESCE($2, expedition_name),
+        status = 'SHIPPED'
+       WHERE id = $3 RETURNING *`,
+      [tracking_number, expedition_name ?? null, req.params.id],
+    );
 
     // Kirim email notifikasi pengiriman (non-blocking)
     const updatedOrder = result.rows[0];
@@ -441,42 +481,99 @@ export const updateTracking = async (
 
     res.json({
       success: true,
-      message: "Nomor resi berhasil diinput",
+      message: "Nomor resi berhasil diinput, status diubah ke SHIPPED",
       data: updatedOrder,
     });
   } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Internal server error";
     console.error("updateTracking error:", err);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    res.status(400).json({ success: false, message });
+  }
+};
+
+// ==========================================
+// PATCH /api/admin/orders/:id/delivered (admin)
+// Admin konfirmasi barang sampai → DELIVERED
+// Hanya bisa dari status SHIPPED
+// ==========================================
+export const markAsDelivered = async (
+  req: Request<{ id: string }>,
+  res: Response<ApiResponse>,
+): Promise<void> => {
+  try {
+    const existing = await query(
+      "SELECT id, status FROM orders WHERE id = $1",
+      [req.params.id],
+    );
+    if (existing.rowCount === 0) {
+      res
+        .status(404)
+        .json({ success: false, message: "Order tidak ditemukan" });
+      return;
+    }
+    if (existing.rows[0].status !== "SHIPPED") {
+      res.status(400).json({
+        success: false,
+        message: `Order harus berstatus SHIPPED untuk dikonfirmasi diterima. Status saat ini: ${existing.rows[0].status}`,
+      });
+      return;
+    }
+
+    // delivered_at di-set otomatis oleh DB trigger
+    const result = await query(
+      `UPDATE orders SET status = 'DELIVERED' WHERE id = $1 RETURNING *`,
+      [req.params.id],
+    );
+
+    res.json({
+      success: true,
+      message: "Order dikonfirmasi telah diterima customer (DELIVERED)",
+      data: result.rows[0],
+    });
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Internal server error";
+    console.error("markAsDelivered error:", err);
+    res.status(400).json({ success: false, message });
   }
 };
 
 // ==========================================
 // PATCH /api/orders/:orderCode/confirm (public)
-// Customer konfirmasi pesanan diterima
+// Customer konfirmasi pesanan diterima → DONE
+// Hanya bisa dari status DELIVERED
 // ==========================================
 export const confirmDelivery = async (
   req: Request<{ orderCode: string }>,
   res: Response<ApiResponse>,
 ): Promise<void> => {
   try {
-    const result = await query(
-      `UPDATE orders SET
-        status = 'DONE',
-        confirmed_at = NOW()
-       WHERE order_code = $1 AND status = 'DELIVERED'
-       RETURNING *`,
+    const existing = await query(
+      "SELECT id, status FROM orders WHERE order_code = $1",
       [req.params.orderCode],
     );
-
-    if (result.rowCount === 0) {
+    if (existing.rowCount === 0) {
+      res
+        .status(404)
+        .json({ success: false, message: "Order tidak ditemukan" });
+      return;
+    }
+    if (existing.rows[0].status !== "DELIVERED") {
       res.status(400).json({
         success: false,
-        message: "Order tidak ditemukan atau belum berstatus DELIVERED",
+        message: "Pesanan belum berstatus DELIVERED, belum bisa dikonfirmasi",
       });
       return;
     }
 
-    // Kirim email konfirmasi diterima (non-blocking)
+    // confirmed_at di-set otomatis oleh DB trigger
+    const result = await query(
+      `UPDATE orders SET status = 'DONE' WHERE order_code = $1 RETURNING *`,
+      [req.params.orderCode],
+    );
+
+    // Kirim email konfirmasi (non-blocking)
     const confirmedOrder = result.rows[0];
     const itemsResult = await query(
       "SELECT * FROM order_items WHERE order_id = $1",
@@ -489,18 +586,19 @@ export const confirmDelivery = async (
 
     res.json({
       success: true,
-      message: "Pesanan berhasil dikonfirmasi",
+      message: "Pesanan berhasil dikonfirmasi, terima kasih!",
       data: confirmedOrder,
     });
   } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Internal server error";
     console.error("confirmDelivery error:", err);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    res.status(400).json({ success: false, message });
   }
 };
 
 // ==========================================
 // GET /api/admin/orders/export (admin)
-// Export orders ke Excel
 // ==========================================
 export const exportOrders = async (
   req: Request<object, object, object, OrderFilter>,

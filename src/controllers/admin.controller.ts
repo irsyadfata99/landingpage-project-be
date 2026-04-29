@@ -2,7 +2,11 @@ import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { query } from "../config/db";
-import { AdminLoginBody, AdminTokenPayload } from "../types/admin.types";
+import {
+  AdminLoginBody,
+  AdminTokenPayload,
+  ChangePasswordBody,
+} from "../types/admin.types";
 import { ApiResponse } from "../types/response.types";
 
 // ==========================================
@@ -60,13 +64,10 @@ export const login = async (
     res.status(200).json({
       success: true,
       message: "Login berhasil",
-      data: {
-        token,
-        admin: payload,
-      },
+      data: { token, admin: payload },
     });
   } catch (err) {
-    console.error("Login error:", err);
+    console.error("login error:", err);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
@@ -93,7 +94,7 @@ export const getMe = async (
 
     res.json({ success: true, message: "OK", data: result.rows[0] });
   } catch (err) {
-    console.error("GetMe error:", err);
+    console.error("getMe error:", err);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
@@ -102,26 +103,25 @@ export const getMe = async (
 // PUT /api/admin/password
 // ==========================================
 export const changePassword = async (
-  req: Request<object, object, { old_password: string; new_password: string }>,
+  req: Request<object, object, ChangePasswordBody>,
   res: Response<ApiResponse>,
 ): Promise<void> => {
   try {
     const { old_password, new_password } = req.body;
 
     if (!old_password || !new_password) {
-      res
-        .status(400)
-        .json({
-          success: false,
-          message: "Password lama dan baru wajib diisi",
-        });
+      res.status(400).json({
+        success: false,
+        message: "Password lama dan baru wajib diisi",
+      });
       return;
     }
 
     if (new_password.length < 6) {
-      res
-        .status(400)
-        .json({ success: false, message: "Password baru minimal 6 karakter" });
+      res.status(400).json({
+        success: false,
+        message: "Password baru minimal 6 karakter",
+      });
       return;
     }
 
@@ -135,9 +135,10 @@ export const changePassword = async (
       result.rows[0].password_hash,
     );
     if (!isMatch) {
-      res
-        .status(400)
-        .json({ success: false, message: "Password lama tidak sesuai" });
+      res.status(400).json({
+        success: false,
+        message: "Password lama tidak sesuai",
+      });
       return;
     }
 
@@ -149,7 +150,7 @@ export const changePassword = async (
 
     res.json({ success: true, message: "Password berhasil diubah" });
   } catch (err) {
-    console.error("ChangePassword error:", err);
+    console.error("changePassword error:", err);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
