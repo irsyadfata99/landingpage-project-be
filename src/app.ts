@@ -28,8 +28,7 @@ app.use(
 
 // ==========================================
 // BODY PARSER
-// Catatan: payment webhook dari Midtrans perlu raw body,
-// jadi kita pisahkan route /payment/webhook sebelum json parser
+// Tripay webhook butuh raw body untuk verifikasi signature
 // ==========================================
 app.use("/api/payment/webhook", express.raw({ type: "application/json" }));
 app.use(express.json({ limit: "10mb" }));
@@ -63,7 +62,7 @@ app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/payment", paymentRoutes);
 
-// GET /api/content — landing page publik (semua section sekaligus)
+// GET /api/content — landing page publik
 app.get("/api/content", getLandingPage);
 
 // ==========================================
