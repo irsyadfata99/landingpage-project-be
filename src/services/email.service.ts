@@ -51,7 +51,6 @@ const formatDate = (date: Date | string | null): string => {
 
 // ==========================================
 // HELPER: ambil template dari DB
-// Fallback ke template kosong jika tidak ditemukan
 // ==========================================
 const getTemplate = async (
   type: EmailTemplateType,
@@ -211,12 +210,16 @@ export const sendPaymentSuccessEmail = async (
 
 // ==========================================
 // EMAIL 2: Barang Dikirim
+// Button "Konfirmasi Diterima" mengarah ke URL konfirmasi customer
 // ==========================================
 export const sendShippingEmail = async (
   order: OrderWithItems,
 ): Promise<void> => {
   const template = await getTemplate("shipping");
   if (!template) return;
+
+  // URL konfirmasi diterima oleh customer
+  const confirmUrl = `${process.env.FRONTEND_URL}/orders/${order.order_code}/confirm`;
 
   const data: ShippingTemplateData = {
     customer_name: order.customer_name,
@@ -230,9 +233,17 @@ export const sendShippingEmail = async (
     template.subject,
     data as unknown as Record<string, string>,
   );
-  const bodyHtml = renderTemplate(
+
+  // Render template dulu, lalu replace placeholder button konfirmasi
+  let bodyHtml = renderTemplate(
     template.body_html,
     data as unknown as Record<string, string>,
+  );
+
+  // Replace href="#" pada button Konfirmasi Diterima dengan URL asli
+  bodyHtml = bodyHtml.replace(
+    /href="#"([^>]*>[\s\S]*?Konfirmasi Diterima)/,
+    `href="${confirmUrl}"$1`,
   );
 
   const transporter = createTransporter();
@@ -244,6 +255,7 @@ export const sendShippingEmail = async (
   });
 
   console.log(`📧 Email shipping dikirim ke ${order.customer_email}`);
+  console.log(`🔗 Confirm URL: ${confirmUrl}`);
 };
 
 // ==========================================

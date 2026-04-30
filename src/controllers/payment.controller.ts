@@ -249,8 +249,13 @@ export const handleWebhook = async (
     //   return;
     // }
 
-    const notification =
-      typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+    const notification = Buffer.isBuffer(req.body)
+      ? JSON.parse(req.body.toString())
+      : typeof req.body === "string"
+        ? JSON.parse(req.body)
+        : req.body;
+
+    console.log("Webhook notification:", JSON.stringify(notification));
 
     const {
       reference, // Tripay reference (disimpan di midtrans_order_id)
