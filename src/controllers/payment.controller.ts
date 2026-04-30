@@ -321,8 +321,8 @@ export const checkPaymentStatus = async (
   try {
     const orderResult = await query(
       `SELECT id, order_code, status, payment_method, payment_bank,
-              payment_url, total_amount, paid_at, midtrans_order_id
-       FROM orders WHERE id = $1 OR order_code = $1`,
+        payment_url, total_amount, paid_at, midtrans_order_id
+        FROM orders WHERE id::text = $1 OR order_code = $1`,
       [req.params.orderId],
     );
 
