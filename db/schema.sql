@@ -1,9 +1,6 @@
 -- ==========================================
 -- SCHEMA.SQL
 -- Landing Page + Checkout System
--- Updated: added email_templates, bank_accounts,
---          withdrawal_settings, withdrawal_history,
---          font columns, fixed order flow
 -- ==========================================
 
 -- Enable UUID extension
@@ -31,7 +28,6 @@ CREATE TABLE site_config (
   favicon_url       TEXT,
   primary_color     VARCHAR(7) NOT NULL DEFAULT '#3B82F6',
   secondary_color   VARCHAR(7) NOT NULL DEFAULT '#10B981',
-  -- Google Fonts
   font_family       VARCHAR(100) NOT NULL DEFAULT 'Inter',
   font_url          TEXT NOT NULL DEFAULT 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap',
   meta_title        VARCHAR(255) NOT NULL DEFAULT 'Nama Toko',
@@ -129,60 +125,51 @@ CREATE TABLE contact_person (
 );
 
 -- ==========================================
--- EMAIL TEMPLATES (3 jenis, satu baris per jenis)
+-- EMAIL TEMPLATES
 -- Jenis: payment_success | shipping | delivery_confirm
--- Variabel per jenis:
---   payment_success  : {{customer_name}}, {{order_code}}, {{total_amount}},
---                      {{payment_method}}, {{items}}, {{download_links}}
---   shipping         : {{customer_name}}, {{order_code}}, {{expedition_name}},
---                      {{tracking_number}}, {{shipping_address}}
---   delivery_confirm : {{customer_name}}, {{order_code}}, {{confirmed_at}}
 -- ==========================================
 CREATE TABLE email_templates (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   type            VARCHAR(50) NOT NULL UNIQUE
                     CHECK (type IN ('payment_success', 'shipping', 'delivery_confirm')),
   subject         VARCHAR(255) NOT NULL,
-  body_html       TEXT NOT NULL,   -- HTML bebas, variabel {{...}} akan di-replace
-  available_vars  TEXT[] NOT NULL DEFAULT '{}', -- daftar variabel yang tersedia (read-only, untuk panduan admin)
+  body_html       TEXT NOT NULL,
+  available_vars  TEXT[] NOT NULL DEFAULT '{}',
   is_active       BOOLEAN NOT NULL DEFAULT TRUE,
   updated_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- ==========================================
--- BANK ACCOUNTS (rekening disbursement Midtrans)
--- Hanya satu rekening aktif yang digunakan untuk disbursement
+-- BANK ACCOUNTS
 -- ==========================================
 CREATE TABLE bank_accounts (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  bank_name       VARCHAR(100) NOT NULL,         -- contoh: 'BCA', 'BNI', 'BRI'
+  bank_name       VARCHAR(100) NOT NULL,
   account_number  VARCHAR(50) NOT NULL,
-  account_name    VARCHAR(255) NOT NULL,          -- nama pemilik rekening
-  is_active       BOOLEAN NOT NULL DEFAULT TRUE,  -- hanya satu yang aktif
+  account_name    VARCHAR(255) NOT NULL,
+  is_active       BOOLEAN NOT NULL DEFAULT TRUE,
   created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Pastikan hanya satu rekening yang aktif
 CREATE UNIQUE INDEX idx_bank_accounts_active ON bank_accounts (is_active)
   WHERE is_active = TRUE;
 
 -- ==========================================
--- WITHDRAWAL SETTINGS (aturan penarikan bulanan)
--- Satu baris saja
+-- WITHDRAWAL SETTINGS (satu baris saja)
 -- ==========================================
 CREATE TABLE withdrawal_settings (
   id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  withdrawal_date       SMALLINT NOT NULL DEFAULT 1   -- tanggal penarikan (1-28)
+  withdrawal_date       SMALLINT NOT NULL DEFAULT 1
                           CHECK (withdrawal_date BETWEEN 1 AND 28),
-  minimum_amount        BIGINT NOT NULL DEFAULT 0,    -- minimal saldo untuk bisa tarik
-  is_auto               BOOLEAN NOT NULL DEFAULT FALSE, -- penarikan otomatis atau manual
-  notification_email    VARCHAR(255),                  -- email notif saat penarikan
+  minimum_amount        BIGINT NOT NULL DEFAULT 0,
+  is_auto               BOOLEAN NOT NULL DEFAULT FALSE,
+  notification_email    VARCHAR(255),
   updated_at            TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- ==========================================
--- WITHDRAWAL HISTORY (log riwayat penarikan)
+-- WITHDRAWAL HISTORY
 -- ==========================================
 CREATE TABLE withdrawal_history (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -190,7 +177,7 @@ CREATE TABLE withdrawal_history (
   amount            BIGINT NOT NULL,
   status            VARCHAR(20) NOT NULL DEFAULT 'PENDING'
                       CHECK (status IN ('PENDING', 'SUCCESS', 'FAILED')),
-  midtrans_ref      VARCHAR(255),   -- referensi dari Midtrans disbursement
+  midtrans_ref      VARCHAR(255),
   notes             TEXT,
   requested_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   processed_at      TIMESTAMP WITH TIME ZONE,
@@ -223,9 +210,9 @@ CREATE TABLE products (
   original_price          BIGINT,
   product_type            VARCHAR(10) NOT NULL DEFAULT 'PHYSICAL'
                             CHECK (product_type IN ('PHYSICAL', 'DIGITAL', 'BOTH')),
-  stock                   INTEGER,          -- NULL = unlimited
+  stock                   INTEGER,
   image_url               TEXT,
-  download_url            TEXT,             -- untuk produk digital
+  download_url            TEXT,
   download_expires_hours  INTEGER NOT NULL DEFAULT 24,
   is_active               BOOLEAN NOT NULL DEFAULT TRUE,
   sort_order              INTEGER NOT NULL DEFAULT 0,
@@ -235,17 +222,8 @@ CREATE TABLE products (
 
 -- ==========================================
 -- ORDERS
--- Status flow:
---   PENDING → PAID → PROCESSING → SHIPPED → DELIVERED → DONE
---
--- PENDING    : order dibuat, menunggu pembayaran
--- PAID       : Midtrans webhook konfirmasi pembayaran
--- PROCESSING : admin mulai proses/packing
--- SHIPPED    : admin input resi, shipped_at di-set
--- DELIVERED  : admin konfirmasi barang sampai, delivered_at di-set
--- DONE       : customer konfirmasi terima, confirmed_at di-set
---
--- Catatan: tidak ada cancel & tidak ada refund
+-- Status flow: PENDING → PAID → PROCESSING → SHIPPED → DELIVERED → DONE
+-- Tidak ada cancel & tidak ada refund
 -- ==========================================
 CREATE TABLE orders (
   id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -261,18 +239,18 @@ CREATE TABLE orders (
                           CHECK (status IN ('PENDING','PAID','PROCESSING','SHIPPED','DELIVERED','DONE')),
   total_amount          BIGINT NOT NULL DEFAULT 0,
   expedition_id         UUID REFERENCES expeditions(id) ON DELETE SET NULL,
-  expedition_name       VARCHAR(255),       -- snapshot nama ekspedisi saat order
+  expedition_name       VARCHAR(255),
   tracking_number       VARCHAR(255),
-  payment_method        VARCHAR(50),        -- 'bank_transfer' | 'qris'
-  payment_bank          VARCHAR(20),        -- 'bca' | 'bni' | 'bri' | 'mandiri' | 'permata'
-  payment_token         TEXT,               -- token dari Midtrans
-  payment_url           TEXT,               -- URL pembayaran VA / QRIS
-  midtrans_order_id     VARCHAR(100),       -- order ID yang dikirim ke Midtrans
-  no_cancel_ack         BOOLEAN NOT NULL DEFAULT FALSE, -- customer acknowledge no cancel/refund
+  payment_method        VARCHAR(50),
+  payment_bank          VARCHAR(20),
+  payment_token         TEXT,
+  payment_url           TEXT,
+  midtrans_order_id     VARCHAR(100),
+  no_cancel_ack         BOOLEAN NOT NULL DEFAULT FALSE,
   paid_at               TIMESTAMP WITH TIME ZONE,
   shipped_at            TIMESTAMP WITH TIME ZONE,
-  delivered_at          TIMESTAMP WITH TIME ZONE,  -- di-set saat admin update ke DELIVERED
-  confirmed_at          TIMESTAMP WITH TIME ZONE,  -- di-set saat customer konfirmasi DONE
+  delivered_at          TIMESTAMP WITH TIME ZONE,
+  confirmed_at          TIMESTAMP WITH TIME ZONE,
   notes                 TEXT,
   created_at            TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at            TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -285,7 +263,7 @@ CREATE TABLE order_items (
   id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   order_id              UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
   product_id            UUID REFERENCES products(id) ON DELETE SET NULL,
-  product_name          VARCHAR(255) NOT NULL,   -- snapshot nama produk saat order
+  product_name          VARCHAR(255) NOT NULL,
   product_type          VARCHAR(10) NOT NULL
                           CHECK (product_type IN ('PHYSICAL', 'DIGITAL', 'BOTH')),
   quantity              INTEGER NOT NULL DEFAULT 1,
@@ -298,17 +276,17 @@ CREATE TABLE order_items (
 -- ==========================================
 -- INDEXES
 -- ==========================================
-CREATE INDEX idx_orders_status         ON orders(status);
-CREATE INDEX idx_orders_customer_email ON orders(customer_email);
-CREATE INDEX idx_orders_order_code     ON orders(order_code);
-CREATE INDEX idx_orders_created_at     ON orders(created_at DESC);
-CREATE INDEX idx_order_items_order_id  ON order_items(order_id);
-CREATE INDEX idx_products_is_active    ON products(is_active);
+CREATE INDEX idx_orders_status             ON orders(status);
+CREATE INDEX idx_orders_customer_email     ON orders(customer_email);
+CREATE INDEX idx_orders_order_code         ON orders(order_code);
+CREATE INDEX idx_orders_created_at         ON orders(created_at DESC);
+CREATE INDEX idx_order_items_order_id      ON order_items(order_id);
+CREATE INDEX idx_products_is_active        ON products(is_active);
 CREATE INDEX idx_withdrawal_history_status ON withdrawal_history(status);
 CREATE INDEX idx_withdrawal_history_requested_at ON withdrawal_history(requested_at DESC);
 
 -- ==========================================
--- AUTO UPDATE updated_at TRIGGER
+-- TRIGGER: AUTO UPDATE updated_at
 -- ==========================================
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
@@ -319,83 +297,61 @@ END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trg_admins_updated_at
-  BEFORE UPDATE ON admins
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  BEFORE UPDATE ON admins FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 CREATE TRIGGER trg_site_config_updated_at
-  BEFORE UPDATE ON site_config
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  BEFORE UPDATE ON site_config FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 CREATE TRIGGER trg_hero_section_updated_at
-  BEFORE UPDATE ON hero_section
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  BEFORE UPDATE ON hero_section FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 CREATE TRIGGER trg_promo_section_updated_at
-  BEFORE UPDATE ON promo_section
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  BEFORE UPDATE ON promo_section FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 CREATE TRIGGER trg_pricing_items_updated_at
-  BEFORE UPDATE ON pricing_items
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  BEFORE UPDATE ON pricing_items FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 CREATE TRIGGER trg_testimonials_updated_at
-  BEFORE UPDATE ON testimonials
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  BEFORE UPDATE ON testimonials FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 CREATE TRIGGER trg_faqs_updated_at
-  BEFORE UPDATE ON faqs
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  BEFORE UPDATE ON faqs FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 CREATE TRIGGER trg_contact_person_updated_at
-  BEFORE UPDATE ON contact_person
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  BEFORE UPDATE ON contact_person FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 CREATE TRIGGER trg_email_templates_updated_at
-  BEFORE UPDATE ON email_templates
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  BEFORE UPDATE ON email_templates FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 CREATE TRIGGER trg_bank_accounts_updated_at
-  BEFORE UPDATE ON bank_accounts
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  BEFORE UPDATE ON bank_accounts FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 CREATE TRIGGER trg_withdrawal_settings_updated_at
-  BEFORE UPDATE ON withdrawal_settings
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  BEFORE UPDATE ON withdrawal_settings FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 CREATE TRIGGER trg_withdrawal_history_updated_at
-  BEFORE UPDATE ON withdrawal_history
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  BEFORE UPDATE ON withdrawal_history FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 CREATE TRIGGER trg_expeditions_updated_at
-  BEFORE UPDATE ON expeditions
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  BEFORE UPDATE ON expeditions FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 CREATE TRIGGER trg_products_updated_at
-  BEFORE UPDATE ON products
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  BEFORE UPDATE ON products FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 CREATE TRIGGER trg_orders_updated_at
-  BEFORE UPDATE ON orders
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  BEFORE UPDATE ON orders FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- ==========================================
--- ENFORCE ORDER STATUS TRANSITION (via trigger)
--- Valid transitions:
---   PENDING    → PAID
---   PAID       → PROCESSING
---   PROCESSING → SHIPPED
---   SHIPPED    → DELIVERED
---   DELIVERED  → DONE
+-- TRIGGER: ENFORCE ORDER STATUS TRANSITION
+-- PENDING → PAID → PROCESSING → SHIPPED → DELIVERED → DONE
 -- ==========================================
 CREATE OR REPLACE FUNCTION enforce_order_status_transition()
 RETURNS TRIGGER AS $$
 BEGIN
-  -- Tidak ada perubahan status, skip
   IF NEW.status = OLD.status THEN
     RETURN NEW;
   END IF;
 
-  -- Validasi transisi
   IF NOT (
     (OLD.status = 'PENDING'    AND NEW.status = 'PAID')       OR
     (OLD.status = 'PAID'       AND NEW.status = 'PROCESSING') OR
@@ -406,7 +362,6 @@ BEGIN
     RAISE EXCEPTION 'Transisi status tidak valid: % → %', OLD.status, NEW.status;
   END IF;
 
-  -- Auto-set timestamp berdasarkan status baru
   IF NEW.status = 'PAID' THEN
     NEW.paid_at = COALESCE(NEW.paid_at, NOW());
   ELSIF NEW.status = 'SHIPPED' THEN
@@ -426,8 +381,7 @@ CREATE TRIGGER trg_orders_status_transition
   FOR EACH ROW EXECUTE FUNCTION enforce_order_status_transition();
 
 -- ==========================================
--- ENFORCE SINGLE ACTIVE BANK ACCOUNT (via trigger)
--- Saat satu rekening di-set aktif, nonaktifkan yang lain
+-- TRIGGER: ENFORCE SINGLE ACTIVE BANK ACCOUNT
 -- ==========================================
 CREATE OR REPLACE FUNCTION enforce_single_active_bank()
 RETURNS TRIGGER AS $$

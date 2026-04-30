@@ -5,13 +5,13 @@
 -- ==========================================
 
 -- ==========================================
--- ADMIN (password: admin123)
+-- ADMIN (password: admin1234)
 -- Ganti password setelah pertama login!
 -- ==========================================
 INSERT INTO admins (username, email, password_hash) VALUES (
   'admin',
   'admin@example.com',
-  '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi'
+  '$2b$10$zsFv4UrewCRuLB3j6Vj2wOYUVc8JmlGzO66vkthpdKRFHfKorQZ5e'
 );
 
 -- ==========================================
@@ -78,9 +78,9 @@ INSERT INTO pricing_items (name, price, original_price, features, is_popular, ct
 -- TESTIMONIALS
 -- ==========================================
 INSERT INTO testimonials (customer_name, content, rating, testimonial_date, is_active, sort_order) VALUES
-('Budi Santoso',  'Produk sangat bagus dan pengiriman cepat. Sangat puas!', 5, '2025-01-10', TRUE, 1),
-('Siti Rahayu',   'Kualitas melebihi ekspektasi. Harga terjangkau, recommended!', 5, '2025-01-15', TRUE, 2),
-('Ahmad Fauzi',   'Pelayanan ramah dan produk original. Sudah beli 3 kali.', 4, '2025-01-20', TRUE, 3);
+('Budi Santoso', 'Produk sangat bagus dan pengiriman cepat. Sangat puas!',          5, '2025-01-10', TRUE, 1),
+('Siti Rahayu',  'Kualitas melebihi ekspektasi. Harga terjangkau, recommended!',    5, '2025-01-15', TRUE, 2),
+('Ahmad Fauzi',  'Pelayanan ramah dan produk original. Sudah beli 3 kali.',         4, '2025-01-20', TRUE, 3);
 
 -- ==========================================
 -- FAQ
@@ -161,14 +161,7 @@ INSERT INTO email_templates (type, subject, body_html, available_vars) VALUES
   </table>
 </body>
 </html>',
-  ARRAY[
-    '{{customer_name}}',
-    '{{order_code}}',
-    '{{total_amount}}',
-    '{{payment_method}}',
-    '{{items}}',
-    '{{download_links}}'
-  ]
+  ARRAY['{{customer_name}}','{{order_code}}','{{total_amount}}','{{payment_method}}','{{items}}','{{download_links}}']
 ),
 (
   'shipping',
@@ -208,13 +201,7 @@ INSERT INTO email_templates (type, subject, body_html, available_vars) VALUES
   </table>
 </body>
 </html>',
-  ARRAY[
-    '{{customer_name}}',
-    '{{order_code}}',
-    '{{expedition_name}}',
-    '{{tracking_number}}',
-    '{{shipping_address}}'
-  ]
+  ARRAY['{{customer_name}}','{{order_code}}','{{expedition_name}}','{{tracking_number}}','{{shipping_address}}']
 ),
 (
   'delivery_confirm',
@@ -245,31 +232,27 @@ INSERT INTO email_templates (type, subject, body_html, available_vars) VALUES
   </table>
 </body>
 </html>',
-  ARRAY[
-    '{{customer_name}}',
-    '{{order_code}}',
-    '{{confirmed_at}}'
-  ]
+  ARRAY['{{customer_name}}','{{order_code}}','{{confirmed_at}}']
 );
 
 -- ==========================================
 -- WITHDRAWAL SETTINGS (default)
 -- ==========================================
 INSERT INTO withdrawal_settings (withdrawal_date, minimum_amount, is_auto) VALUES (
-  1,      -- tanggal 1 setiap bulan
-  0,      -- tidak ada minimum
-  FALSE   -- manual
+  1,
+  0,
+  FALSE
 );
 
 -- ==========================================
 -- EXPEDITIONS
 -- ==========================================
 INSERT INTO expeditions (name, description, is_active, sort_order) VALUES
-('JNE',          'Jalur Nugraha Ekakurir',  TRUE, 1),
-('J&T Express',  'J&T Express Indonesia',   TRUE, 2),
-('SiCepat',      'SiCepat Ekspres',          TRUE, 3),
-('AnterAja',     'AnterAja Ekspres',         TRUE, 4),
-('Pos Indonesia','PT Pos Indonesia',         TRUE, 5);
+('JNE',           'Jalur Nugraha Ekakurir', TRUE, 1),
+('J&T Express',   'J&T Express Indonesia',  TRUE, 2),
+('SiCepat',       'SiCepat Ekspres',        TRUE, 3),
+('AnterAja',      'AnterAja Ekspres',        TRUE, 4),
+('Pos Indonesia', 'PT Pos Indonesia',        TRUE, 5);
 
 -- ==========================================
 -- SAMPLE PRODUCTS
