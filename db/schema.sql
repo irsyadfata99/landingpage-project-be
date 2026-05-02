@@ -152,6 +152,7 @@ CREATE TABLE bank_accounts (
   updated_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Pastikan hanya satu rekening yang aktif
 CREATE UNIQUE INDEX idx_bank_accounts_active ON bank_accounts (is_active)
   WHERE is_active = TRUE;
 
@@ -177,7 +178,7 @@ CREATE TABLE withdrawal_history (
   amount            BIGINT NOT NULL,
   status            VARCHAR(20) NOT NULL DEFAULT 'PENDING'
                       CHECK (status IN ('PENDING', 'SUCCESS', 'FAILED')),
-  tripay_ref      VARCHAR(255),
+  tripay_ref        VARCHAR(255),
   notes             TEXT,
   requested_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   processed_at      TIMESTAMP WITH TIME ZONE,
@@ -245,7 +246,7 @@ CREATE TABLE orders (
   payment_bank          VARCHAR(20),
   payment_token         TEXT,
   payment_url           TEXT,
-  tripay_order_id     VARCHAR(100),
+  tripay_order_id       VARCHAR(100),
   no_cancel_ack         BOOLEAN NOT NULL DEFAULT FALSE,
   paid_at               TIMESTAMP WITH TIME ZONE,
   shipped_at            TIMESTAMP WITH TIME ZONE,

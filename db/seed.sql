@@ -78,9 +78,9 @@ INSERT INTO pricing_items (name, price, original_price, features, is_popular, ct
 -- TESTIMONIALS
 -- ==========================================
 INSERT INTO testimonials (customer_name, content, rating, testimonial_date, is_active, sort_order) VALUES
-('Budi Santoso', 'Produk sangat bagus dan pengiriman cepat. Sangat puas!',          5, '2025-01-10', TRUE, 1),
-('Siti Rahayu',  'Kualitas melebihi ekspektasi. Harga terjangkau, recommended!',    5, '2025-01-15', TRUE, 2),
-('Ahmad Fauzi',  'Pelayanan ramah dan produk original. Sudah beli 3 kali.',         4, '2025-01-20', TRUE, 3);
+('Budi Santoso', 'Produk sangat bagus dan pengiriman cepat. Sangat puas!',       5, '2025-01-10', TRUE, 1),
+('Siti Rahayu',  'Kualitas melebihi ekspektasi. Harga terjangkau, recommended!', 5, '2025-01-15', TRUE, 2),
+('Ahmad Fauzi',  'Pelayanan ramah dan produk original. Sudah beli 3 kali.',      4, '2025-01-20', TRUE, 3);
 
 -- ==========================================
 -- FAQ
@@ -98,7 +98,7 @@ INSERT INTO faqs (question, answer, is_active, sort_order) VALUES
 ),
 (
   'Metode pembayaran apa yang tersedia?',
-  'Kami menerima pembayaran melalui Virtual Account (BCA, BNI, BRI, Mandiri, Permata) dan QRIS.',
+  'Kami menerima pembayaran melalui Virtual Account (BCA, BNI, BRI, Mandiri) dan QRIS.',
   TRUE, 3
 ),
 (
@@ -150,7 +150,7 @@ INSERT INTO email_templates (type, subject, body_html, available_vars) VALUES
       {{items}}
       {{download_links}}
       <div style="margin-top:24px;text-align:center;">
-        <a href="#" style="background:#3B82F6;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:bold;">
+        <a href="#" style="display:block;background:#3B82F6;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:bold;">
           Lacak Pesanan
         </a>
       </div>
@@ -187,11 +187,11 @@ INSERT INTO email_templates (type, subject, body_html, available_vars) VALUES
         {{shipping_address}}
       </div>
       <div style="margin-top:24px;text-align:center;">
-        <a href="#" style="background:#3B82F6;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold;margin-right:8px;">
+        <a href="#" style="display:block;background:#3B82F6;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:bold;margin-bottom:12px;">
           Lacak Pesanan
         </a>
-        <a href="#" style="background:#10B981;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold;">
-          Konfirmasi Diterima
+        <a href="{{confirm_url}}" style="display:block;background:#10B981;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:bold;">
+          ✅ Konfirmasi Pesanan Diterima
         </a>
       </div>
     </td></tr>
@@ -201,7 +201,7 @@ INSERT INTO email_templates (type, subject, body_html, available_vars) VALUES
   </table>
 </body>
 </html>',
-  ARRAY['{{customer_name}}','{{order_code}}','{{expedition_name}}','{{tracking_number}}','{{shipping_address}}']
+  ARRAY['{{customer_name}}','{{order_code}}','{{expedition_name}}','{{tracking_number}}','{{shipping_address}}','{{confirm_url}}']
 ),
 (
   'delivery_confirm',

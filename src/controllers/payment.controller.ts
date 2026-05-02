@@ -5,7 +5,7 @@ import {
   TRIPAY_BASE_URL,
   TRIPAY_CHANNELS,
   generateSignature,
-  // verifyWebhookSignature,
+  verifyWebhookSignature,
 } from "../config/tripay";
 import { ApiResponse } from "../types/response.types";
 import { sendPaymentSuccessEmail } from "../services/email.service";
@@ -230,24 +230,27 @@ export const handleWebhook = async (
 ): Promise<void> => {
   try {
     // Verifikasi signature dari Tripay
-    // const rawBody =
-    //   typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+    const rawBody = Buffer.isBuffer(req.body)
+      ? req.body.toString()
+      : typeof req.body === "string"
+        ? req.body
+        : JSON.stringify(req.body);
 
-    // const receivedSignature = req.headers["x-callback-signature"] as string;
+    const receivedSignature = req.headers["x-callback-signature"] as string;
 
-    // if (!receivedSignature) {
-    //   res
-    //     .status(400)
-    //     .json({ success: false, message: "Signature tidak ditemukan" });
-    //   return;
-    // }
+    if (!receivedSignature) {
+      res
+        .status(400)
+        .json({ success: false, message: "Signature tidak ditemukan" });
+      return;
+    }
 
-    // if (!verifyWebhookSignature(rawBody, receivedSignature)) {
-    //   res
-    //     .status(401)
-    //     .json({ success: false, message: "Signature tidak valid" });
-    //   return;
-    // }
+    if (!verifyWebhookSignature(rawBody, receivedSignature)) {
+      res
+        .status(401)
+        .json({ success: false, message: "Signature tidak valid" });
+      return;
+    }
 
     const notification = Buffer.isBuffer(req.body)
       ? JSON.parse(req.body.toString())

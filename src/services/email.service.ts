@@ -4,7 +4,6 @@ import { OrderWithItems } from "../types/order.types";
 import {
   EmailTemplateType,
   PaymentSuccessTemplateData,
-  ShippingTemplateData,
   DeliveryConfirmTemplateData,
 } from "../types/email-template.types";
 
@@ -218,33 +217,20 @@ export const sendShippingEmail = async (
   const template = await getTemplate("shipping");
   if (!template) return;
 
-  // URL konfirmasi diterima oleh customer
   const confirmUrl = `${process.env.FRONTEND_URL}/orders/${order.order_code}/confirm`;
 
-  const data: ShippingTemplateData = {
+  // confirm_url ditambahkan ke data agar {{confirm_url}} ter-replace di template
+  const data: Record<string, string> = {
     customer_name: order.customer_name,
     order_code: order.order_code,
     expedition_name: order.expedition_name ?? "-",
     tracking_number: order.tracking_number ?? "-",
     shipping_address: renderShippingAddress(order),
+    confirm_url: confirmUrl,
   };
 
-  const subject = renderTemplate(
-    template.subject,
-    data as unknown as Record<string, string>,
-  );
-
-  // Render template dulu, lalu replace placeholder button konfirmasi
-  let bodyHtml = renderTemplate(
-    template.body_html,
-    data as unknown as Record<string, string>,
-  );
-
-  // Replace href="#" pada button Konfirmasi Diterima dengan URL asli
-  bodyHtml = bodyHtml.replace(
-    /href="#"([^>]*>[\s\S]*?Konfirmasi Diterima)/,
-    `href="${confirmUrl}"$1`,
-  );
+  const subject = renderTemplate(template.subject, data);
+  const bodyHtml = renderTemplate(template.body_html, data);
 
   const transporter = createTransporter();
   await transporter.sendMail({
