@@ -113,6 +113,7 @@ export interface CreateOrderBody {
   items: CreateOrderItemBody[];
   notes?: string;
   no_cancel_ack: boolean;
+  voucher_code?: string; // tambah ini
 }
 
 export interface UpdateOrderStatusBody {

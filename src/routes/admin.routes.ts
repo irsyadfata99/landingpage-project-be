@@ -69,6 +69,7 @@ import {
 } from "../validators/auth.validator";
 import { loginRateLimit } from "../app";
 import multer from "multer";
+import { getAnalyticsSummary } from "../controllers/analytics.controller";
 
 const router = Router();
 
@@ -91,6 +92,8 @@ router.use(authMiddleware);
 // Profile
 router.get("/me", getMe);
 router.put("/password", validate(changePasswordSchema), changePassword);
+
+router.get("/analytics/summary", getAnalyticsSummary);
 
 // ==========================================
 // CONTENT — Landing Page
