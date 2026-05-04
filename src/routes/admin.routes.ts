@@ -69,31 +69,22 @@ import {
 } from "../validators/auth.validator";
 import { loginRateLimit } from "../app";
 import multer from "multer";
-import path from "path";
-import fs from "fs";
 
 const router = Router();
 
-const uploadDir = path.join(process.cwd(), process.env.UPLOAD_DIR || "uploads");
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, uploadDir),
-  filename: (_req, file, cb) =>
-    cb(null, `${Date.now()}-${file.originalname.replace(/\s+/g, "-")}`),
-});
-const uploadFields = multer({ storage }).fields([
+// uploadFields untuk site-config (logo + favicon) — pakai memory storage
+const uploadFields = multer({ storage: multer.memoryStorage() }).fields([
   { name: "logo", maxCount: 1 },
   { name: "favicon", maxCount: 1 },
 ]);
 
 // ==========================================
-// AUTH (public) — rate limit + validasi Zod
+// AUTH (public)
 // ==========================================
 router.post("/login", loginRateLimit, validate(loginSchema), login);
 
 // ==========================================
-// Protected — semua route di bawah butuh token
+// Protected
 // ==========================================
 router.use(authMiddleware);
 

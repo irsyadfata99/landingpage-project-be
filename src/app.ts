@@ -1,6 +1,5 @@
 import express, { Application, Request, Response, NextFunction } from "express";
 import cors from "cors";
-import path from "path";
 import dotenv from "dotenv";
 import rateLimit from "express-rate-limit";
 
@@ -29,7 +28,6 @@ app.use(
 
 // ==========================================
 // RATE LIMITING
-// FIX #3 & #4: Proteksi endpoint login, checkout, dan payment charge
 // ==========================================
 
 // Login admin: max 10 request per 15 menit per IP
@@ -75,14 +73,6 @@ export const chargeRateLimit = rateLimit({
 app.use("/api/payment/webhook", express.raw({ type: "application/json" }));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
-
-// ==========================================
-// STATIC FILES (uploads)
-// ==========================================
-app.use(
-  "/uploads",
-  express.static(path.join(__dirname, process.env.UPLOAD_DIR || "uploads")),
-);
 
 // ==========================================
 // HEALTH CHECK
