@@ -4,7 +4,7 @@ import {
   handleWebhook,
   checkPaymentStatus,
 } from "../controllers/payment.controller";
-import { chargeRateLimit } from "../app";
+import { chargeRateLimit } from "../config/rate-limit";
 import { validate } from "../middlewares/validate.middleware";
 import { chargePaymentSchema } from "../validators/payment.validator";
 

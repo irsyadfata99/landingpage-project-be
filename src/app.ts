@@ -1,17 +1,20 @@
 import express, { Application, Request, Response, NextFunction } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import rateLimit from "express-rate-limit";
+import {
+  loginRateLimit,
+  checkoutRateLimit,
+  chargeRateLimit,
+} from "./config/rate-limit";
 
 dotenv.config();
 
-// Routes
 import adminRoutes from "./routes/admin.routes";
 import productRoutes from "./routes/product.routes";
 import orderRoutes from "./routes/order.routes";
 import paymentRoutes from "./routes/payment.routes";
-import { getLandingPage } from "./controllers/content.controller";
 import reviewRoutes from "./routes/review.routes";
+import { getLandingPage } from "./controllers/content.controller";
 
 const app: Application = express();
 
@@ -28,54 +31,12 @@ app.use(
 );
 
 // ==========================================
-// RATE LIMITING
-// ==========================================
-
-// Login admin: max 10 request per 15 menit per IP
-export const loginRateLimit = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    message: "Terlalu banyak percobaan login. Coba lagi dalam 15 menit.",
-  },
-});
-
-// Checkout: max 20 order per jam per IP
-export const checkoutRateLimit = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    message: "Terlalu banyak request checkout. Coba lagi dalam 1 jam.",
-  },
-});
-
-// Payment charge: max 20 request per jam per IP
-export const chargeRateLimit = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    message: "Terlalu banyak request pembayaran. Coba lagi dalam 1 jam.",
-  },
-});
-
-// ==========================================
 // BODY PARSER
 // Tripay webhook butuh raw body untuk verifikasi signature
 // ==========================================
 app.use("/api/payment/webhook", express.raw({ type: "application/json" }));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
-
-app.use("/api/reviews", reviewRoutes);
 
 // ==========================================
 // HEALTH CHECK
@@ -96,8 +57,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/payment", paymentRoutes);
-
-// GET /api/content — landing page publik
+app.use("/api/reviews", reviewRoutes);
 app.get("/api/content", getLandingPage);
 
 // ==========================================
@@ -126,4 +86,5 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   });
 });
 
+export { loginRateLimit, checkoutRateLimit, chargeRateLimit };
 export default app;

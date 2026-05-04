@@ -67,7 +67,7 @@ import {
   loginSchema,
   changePasswordSchema,
 } from "../validators/auth.validator";
-import { loginRateLimit } from "../app";
+import { loginRateLimit } from "../config/rate-limit";
 import multer from "multer";
 import { getAnalyticsSummary } from "../controllers/analytics.controller";
 
