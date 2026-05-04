@@ -1,6 +1,9 @@
 -- ==========================================
 -- SCHEMA.SQL
 -- Landing Page + Checkout System
+-- Versi lengkap: sudah include EXPIRED, REFUNDED,
+-- discount_amount, voucher_code, vouchers, voucher_uses,
+-- product_reviews
 -- ==========================================
 
 -- Enable UUID extension
@@ -222,9 +225,32 @@ CREATE TABLE products (
 );
 
 -- ==========================================
+-- VOUCHERS
+-- ==========================================
+CREATE TABLE vouchers (
+  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  code            VARCHAR(50) NOT NULL UNIQUE,
+  type            VARCHAR(10) NOT NULL CHECK (type IN ('PERCENT', 'NOMINAL')),
+  value           BIGINT NOT NULL,
+  minimum_order   BIGINT NOT NULL DEFAULT 0,
+  max_uses        INTEGER NOT NULL DEFAULT 1,
+  used_count      INTEGER NOT NULL DEFAULT 0,
+  expired_at      TIMESTAMP WITH TIME ZONE NOT NULL,
+  is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX idx_vouchers_code      ON vouchers(code);
+CREATE INDEX idx_vouchers_is_active ON vouchers(is_active);
+
+-- ==========================================
 -- ORDERS
--- Status flow: PENDING → PAID → PROCESSING → SHIPPED → DELIVERED → DONE
--- Tidak ada cancel & tidak ada refund
+-- Status flow:
+--   PENDING → PAID → PROCESSING → SHIPPED → DELIVERED → DONE
+--   PENDING → EXPIRED    (cron job, tidak bayar 24 jam)
+--   PAID    → REFUNDED   (Tripay webhook REFUND)
+--   PROCESSING → REFUNDED
 -- ==========================================
 CREATE TABLE orders (
   id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -237,8 +263,13 @@ CREATE TABLE orders (
   customer_province     VARCHAR(255),
   customer_postal_code  VARCHAR(10),
   status                VARCHAR(20) NOT NULL DEFAULT 'PENDING'
-                          CHECK (status IN ('PENDING','PAID','PROCESSING','SHIPPED','DELIVERED','DONE')),
+                          CHECK (status IN (
+                            'PENDING','PAID','PROCESSING','SHIPPED',
+                            'DELIVERED','DONE','EXPIRED','REFUNDED'
+                          )),
   total_amount          BIGINT NOT NULL DEFAULT 0,
+  discount_amount       BIGINT NOT NULL DEFAULT 0,
+  voucher_code          VARCHAR(50),
   expedition_id         UUID REFERENCES expeditions(id) ON DELETE SET NULL,
   expedition_name       VARCHAR(255),
   tracking_number       VARCHAR(255),
@@ -258,6 +289,23 @@ CREATE TABLE orders (
 );
 
 -- ==========================================
+-- VOUCHER USES
+-- Mencatat pemakaian voucher per customer per order
+-- Satu kombinasi voucher_id + customer_email = unik
+-- ==========================================
+CREATE TABLE voucher_uses (
+  id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  voucher_id     UUID NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+  order_id       UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  customer_email VARCHAR(255) NOT NULL,
+  used_at        TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX idx_voucher_uses_unique
+  ON voucher_uses(voucher_id, customer_email);
+CREATE INDEX idx_voucher_uses_voucher_id ON voucher_uses(voucher_id);
+
+-- ==========================================
 -- ORDER ITEMS
 -- ==========================================
 CREATE TABLE order_items (
@@ -275,16 +323,41 @@ CREATE TABLE order_items (
 );
 
 -- ==========================================
+-- PRODUCT REVIEWS
+-- Hanya customer dengan order DONE yang bisa review
+-- Perlu moderasi admin (is_approved) sebelum tampil publik
+-- ==========================================
+CREATE TABLE product_reviews (
+  id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  product_id     UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  order_id       UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  customer_name  VARCHAR(255) NOT NULL,
+  customer_email VARCHAR(255) NOT NULL,
+  rating         SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  comment        TEXT,
+  is_approved    BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at     TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at     TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Satu customer hanya bisa review satu produk per order
+CREATE UNIQUE INDEX idx_product_reviews_unique
+  ON product_reviews(product_id, order_id, customer_email);
+CREATE INDEX idx_product_reviews_product_id  ON product_reviews(product_id);
+CREATE INDEX idx_product_reviews_is_approved ON product_reviews(is_approved);
+
+-- ==========================================
 -- INDEXES
 -- ==========================================
-CREATE INDEX idx_orders_status             ON orders(status);
-CREATE INDEX idx_orders_customer_email     ON orders(customer_email);
-CREATE INDEX idx_orders_order_code         ON orders(order_code);
-CREATE INDEX idx_orders_created_at         ON orders(created_at DESC);
-CREATE INDEX idx_order_items_order_id      ON order_items(order_id);
-CREATE INDEX idx_products_is_active        ON products(is_active);
-CREATE INDEX idx_withdrawal_history_status ON withdrawal_history(status);
-CREATE INDEX idx_withdrawal_history_requested_at ON withdrawal_history(requested_at DESC);
+CREATE INDEX idx_orders_status              ON orders(status);
+CREATE INDEX idx_orders_customer_email      ON orders(customer_email);
+CREATE INDEX idx_orders_order_code          ON orders(order_code);
+CREATE INDEX idx_orders_created_at          ON orders(created_at DESC);
+CREATE INDEX idx_order_items_order_id       ON order_items(order_id);
+CREATE INDEX idx_products_is_active         ON products(is_active);
+CREATE INDEX idx_withdrawal_history_status  ON withdrawal_history(status);
+CREATE INDEX idx_withdrawal_history_requested_at
+  ON withdrawal_history(requested_at DESC);
 
 -- ==========================================
 -- TRIGGER: AUTO UPDATE updated_at
@@ -342,9 +415,17 @@ CREATE TRIGGER trg_products_updated_at
 CREATE TRIGGER trg_orders_updated_at
   BEFORE UPDATE ON orders FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
+CREATE TRIGGER trg_vouchers_updated_at
+  BEFORE UPDATE ON vouchers FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER trg_product_reviews_updated_at
+  BEFORE UPDATE ON product_reviews FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
 -- ==========================================
 -- TRIGGER: ENFORCE ORDER STATUS TRANSITION
--- PENDING → PAID → PROCESSING → SHIPPED → DELIVERED → DONE
+-- Flow normal  : PENDING → PAID → PROCESSING → SHIPPED → DELIVERED → DONE
+-- Auto-expire  : PENDING → EXPIRED  (oleh cron job)
+-- Refund       : PAID → REFUNDED, PROCESSING → REFUNDED  (oleh webhook)
 -- ==========================================
 CREATE OR REPLACE FUNCTION enforce_order_status_transition()
 RETURNS TRIGGER AS $$
@@ -355,8 +436,11 @@ BEGIN
 
   IF NOT (
     (OLD.status = 'PENDING'    AND NEW.status = 'PAID')       OR
+    (OLD.status = 'PENDING'    AND NEW.status = 'EXPIRED')    OR
     (OLD.status = 'PAID'       AND NEW.status = 'PROCESSING') OR
+    (OLD.status = 'PAID'       AND NEW.status = 'REFUNDED')   OR
     (OLD.status = 'PROCESSING' AND NEW.status = 'SHIPPED')    OR
+    (OLD.status = 'PROCESSING' AND NEW.status = 'REFUNDED')   OR
     (OLD.status = 'SHIPPED'    AND NEW.status = 'DELIVERED')  OR
     (OLD.status = 'DELIVERED'  AND NEW.status = 'DONE')
   ) THEN

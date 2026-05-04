@@ -20,8 +20,9 @@ export const runExpireOrders = async (): Promise<void> => {
       `UPDATE orders
        SET status = 'EXPIRED'
        WHERE status = 'PENDING'
-         AND created_at < NOW() - INTERVAL '${EXPIRE_AFTER_HOURS} hours'
+         AND created_at < NOW() - ($1 * INTERVAL '1 hour')
        RETURNING order_code`,
+      [EXPIRE_AFTER_HOURS],
     );
 
     if (result.rowCount && result.rowCount > 0) {

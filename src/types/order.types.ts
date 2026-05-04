@@ -4,9 +4,9 @@
 
 // Status flow:
 //   PENDING → PAID → PROCESSING → SHIPPED → DELIVERED → DONE
-//   PENDING → EXPIRED  (otomatis via cron job setelah 24 jam tidak dibayar)
-//   PAID    → REFUNDED (via Tripay webhook status REFUND)
-//   PROCESSING → REFUNDED (via Tripay webhook status REFUND)
+//   PENDING → EXPIRED    (otomatis via cron job setelah 24 jam tidak dibayar)
+//   PAID    → REFUNDED   (via Tripay webhook status REFUND)
+//   PROCESSING → REFUNDED
 //
 // PENDING    : order dibuat, menunggu pembayaran
 // PAID       : Tripay webhook konfirmasi pembayaran
@@ -29,8 +29,8 @@ export type OrderStatus =
   | "REFUNDED";
 
 // Valid transisi status (untuk validasi di controller sebelum hit DB)
-// REFUNDED dikecualikan dari sini karena di-set langsung oleh webhook handler,
-// bukan via endpoint PATCH /orders/:id/status
+// EXPIRED  → di-set oleh cron job, bukan via endpoint PATCH
+// REFUNDED → di-set oleh webhook handler, bukan via endpoint PATCH
 export const VALID_STATUS_TRANSITIONS: Record<OrderStatus, OrderStatus | null> =
   {
     PENDING: "PAID",
@@ -47,7 +47,7 @@ export type ProductType = "PHYSICAL" | "DIGITAL" | "BOTH";
 
 export interface Order {
   id: string;
-  order_code: string;
+  order_code: string; // contoh: ORD-20250101-XXXX
   customer_name: string;
   customer_email: string;
   customer_phone: string;
@@ -56,20 +56,22 @@ export interface Order {
   customer_province: string | null;
   customer_postal_code: string | null;
   status: OrderStatus;
-  total_amount: number;
+  total_amount: number; // harga setelah diskon
+  discount_amount: number; // nominal diskon dari voucher (0 jika tidak pakai)
+  voucher_code: string | null; // kode voucher yang dipakai (null jika tidak pakai)
   expedition_id: string | null;
-  expedition_name: string | null;
+  expedition_name: string | null; // snapshot nama ekspedisi saat order
   tracking_number: string | null;
   payment_method: "bank_transfer" | "qris" | null;
   payment_bank: string | null;
   payment_token: string | null;
   payment_url: string | null;
-  tripay_order_id: string | null;
-  no_cancel_ack: boolean;
+  tripay_order_id: string | null; // reference dari Tripay setelah charge
+  no_cancel_ack: boolean; // customer acknowledge: tidak bisa cancel/refund
   paid_at: Date | null;
   shipped_at: Date | null;
-  delivered_at: Date | null;
-  confirmed_at: Date | null;
+  delivered_at: Date | null; // di-set saat admin update ke DELIVERED
+  confirmed_at: Date | null; // di-set saat customer konfirmasi DONE
   notes: string | null;
   created_at: Date;
   updated_at: Date;
@@ -78,8 +80,8 @@ export interface Order {
 export interface OrderItem {
   id: string;
   order_id: string;
-  product_id: string | null;
-  product_name: string;
+  product_id: string | null; // null jika produk sudah dihapus
+  product_name: string; // snapshot nama produk saat order
   product_type: ProductType;
   quantity: number;
   price: number;
@@ -109,11 +111,11 @@ export interface CreateOrderBody {
   customer_postal_code?: string;
   expedition_id?: string;
   payment_method: "bank_transfer" | "qris";
-  bank?: "bca" | "bni" | "bri" | "mandiri" | "permata";
+  bank?: "bca" | "bni" | "bri" | "mandiri";
   items: CreateOrderItemBody[];
   notes?: string;
-  no_cancel_ack: boolean;
-  voucher_code?: string; // tambah ini
+  no_cancel_ack: boolean; // wajib true agar order bisa dibuat
+  voucher_code?: string; // opsional, kode voucher diskon
 }
 
 export interface UpdateOrderStatusBody {
@@ -129,7 +131,7 @@ export interface UpdateTrackingBody {
 
 export interface OrderFilter {
   status?: OrderStatus;
-  search?: string;
+  search?: string; // cari by order_code / customer_name / email
   start_date?: string;
   end_date?: string;
   page?: number;

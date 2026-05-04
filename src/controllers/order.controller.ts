@@ -14,7 +14,6 @@ import {
   sendDeliveryConfirmEmail,
 } from "../services/email.service";
 import { verifyDownloadToken } from "../services/download.service";
-import { validateVoucherCode } from "./voucher.controller";
 
 // ==========================================
 // HELPER: generate order code
@@ -24,6 +23,20 @@ const generateOrderCode = (): string => {
   const dateStr = date.toISOString().slice(0, 10).replace(/-/g, "");
   const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
   return `ORD-${dateStr}-${rand}`;
+};
+
+// ==========================================
+// HELPER: hitung diskon voucher
+// ==========================================
+const calculateDiscount = (
+  type: "PERCENT" | "NOMINAL",
+  value: number,
+  totalAmount: number,
+): number => {
+  if (type === "PERCENT") {
+    return Math.floor((totalAmount * value) / 100);
+  }
+  return Math.min(value, totalAmount);
 };
 
 // ==========================================
@@ -83,7 +96,9 @@ export const createOrder = async (
     }
 
     const order = await transaction(async (client) => {
+      // ==========================================
       // 1. Ambil data produk dan validasi
+      // ==========================================
       const productIds = items.map((i) => i.product_id);
       const productsResult = await client.query(
         `SELECT * FROM products WHERE id = ANY($1::uuid[]) AND is_active = TRUE`,
@@ -94,8 +109,10 @@ export const createOrder = async (
         throw new Error("Beberapa produk tidak ditemukan atau tidak aktif");
       }
 
-      // 2. Hitung total dan validasi stok
-      let totalAmount = 0;
+      // ==========================================
+      // 2. Hitung subtotal dan validasi stok
+      // ==========================================
+      let subtotalAmount = 0;
       const orderItems = items.map((item) => {
         const product = productsResult.rows.find(
           (p) => p.id === item.product_id,
@@ -108,11 +125,13 @@ export const createOrder = async (
         }
 
         const subtotal = product.price * item.quantity;
-        totalAmount += subtotal;
+        subtotalAmount += subtotal;
         return { product, quantity: item.quantity, subtotal };
       });
 
+      // ==========================================
       // 3. Validasi ekspedisi jika ada produk fisik
+      // ==========================================
       const hasPhysical = orderItems.some(
         (i) =>
           i.product.product_type === "PHYSICAL" ||
@@ -133,34 +152,81 @@ export const createOrder = async (
         expeditionName = expResult.rows[0].name;
       }
 
+      // ==========================================
       // 4. Validasi & hitung diskon voucher
+      //    Gunakan SELECT FOR UPDATE untuk mencegah race condition:
+      //    dua request bersamaan dengan voucher yang sama
+      //    tidak akan lolos validasi secara bersamaan
+      // ==========================================
       let discountAmount = 0;
       let appliedVoucherCode: string | null = null;
+      let voucherId: string | null = null;
 
       if (voucher_code) {
-        const voucherResult = await validateVoucherCode(
-          voucher_code,
-          totalAmount,
-          customer_email,
+        // LOCK baris voucher agar tidak ada proses lain
+        // yang bisa baca/update voucher ini sampai transaksi selesai
+        const voucherResult = await client.query(
+          `SELECT * FROM vouchers
+           WHERE code = $1
+           FOR UPDATE`,
+          [voucher_code.toUpperCase()],
         );
 
-        if (!voucherResult.valid) {
-          throw new Error(voucherResult.message);
+        if (voucherResult.rowCount === 0) {
+          throw new Error("Voucher tidak ditemukan");
         }
 
-        discountAmount = voucherResult.voucher!.discount_amount;
-        appliedVoucherCode = voucherResult.voucher!.code;
+        const voucher = voucherResult.rows[0];
 
-        // Increment used_count
+        if (!voucher.is_active) {
+          throw new Error("Voucher tidak aktif");
+        }
+
+        if (new Date() > new Date(voucher.expired_at)) {
+          throw new Error("Voucher sudah kadaluarsa");
+        }
+
+        if (voucher.used_count >= voucher.max_uses) {
+          throw new Error("Voucher sudah mencapai batas pemakaian");
+        }
+
+        if (subtotalAmount < voucher.minimum_order) {
+          throw new Error(
+            `Minimum order untuk voucher ini adalah Rp ${Number(voucher.minimum_order).toLocaleString("id-ID")}`,
+          );
+        }
+
+        // Cek apakah customer sudah pernah pakai voucher ini
+        const usageResult = await client.query(
+          `SELECT id FROM voucher_uses
+           WHERE voucher_id = $1 AND customer_email = $2`,
+          [voucher.id, customer_email.toLowerCase()],
+        );
+
+        if (usageResult.rowCount! > 0) {
+          throw new Error("Anda sudah pernah menggunakan voucher ini");
+        }
+
+        discountAmount = calculateDiscount(
+          voucher.type,
+          Number(voucher.value),
+          subtotalAmount,
+        );
+        appliedVoucherCode = voucher.code;
+        voucherId = voucher.id;
+
+        // Increment used_count di dalam transaksi yang sama
         await client.query(
           "UPDATE vouchers SET used_count = used_count + 1 WHERE id = $1",
-          [voucherResult.voucher!.id],
+          [voucher.id],
         );
       }
 
-      const finalAmount = Math.max(0, totalAmount - discountAmount);
+      const finalAmount = Math.max(0, subtotalAmount - discountAmount);
 
+      // ==========================================
       // 5. Buat order
+      // ==========================================
       const orderCode = generateOrderCode();
       const orderResult = await client.query(
         `INSERT INTO orders (
@@ -169,7 +235,8 @@ export const createOrder = async (
           total_amount, discount_amount, voucher_code,
           expedition_id, expedition_name,
           payment_method, payment_bank, notes, no_cancel_ack
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+        RETURNING *`,
         [
           orderCode,
           customer_name,
@@ -193,7 +260,9 @@ export const createOrder = async (
 
       const newOrder = orderResult.rows[0];
 
+      // ==========================================
       // 6. Insert order items + kurangi stok
+      // ==========================================
       for (const item of orderItems) {
         const { product, quantity, subtotal } = item;
 
@@ -234,19 +303,17 @@ export const createOrder = async (
         }
       }
 
-      // 7. Catat pemakaian voucher
-      if (appliedVoucherCode && voucher_code) {
-        const voucherRow = await client.query(
-          "SELECT id FROM vouchers WHERE code = $1",
-          [appliedVoucherCode],
+      // ==========================================
+      // 7. Catat pemakaian voucher di dalam transaksi
+      //    Karena voucher sudah di-lock (FOR UPDATE),
+      //    insert ini dijamin tidak duplikat
+      // ==========================================
+      if (voucherId && appliedVoucherCode) {
+        await client.query(
+          `INSERT INTO voucher_uses (voucher_id, order_id, customer_email)
+           VALUES ($1, $2, $3)`,
+          [voucherId, newOrder.id, customer_email.toLowerCase()],
         );
-        if (voucherRow.rowCount! > 0) {
-          await client.query(
-            `INSERT INTO voucher_uses (voucher_id, order_id, customer_email)
-             VALUES ($1,$2,$3)`,
-            [voucherRow.rows[0].id, newOrder.id, customer_email.toLowerCase()],
-          );
-        }
       }
 
       return newOrder;
@@ -544,6 +611,8 @@ export const updateOrderStatus = async (
 
 // ==========================================
 // PATCH /api/admin/orders/:id/tracking (admin)
+// Input resi → otomatis set status SHIPPED
+// Hanya bisa dilakukan saat status PROCESSING
 // ==========================================
 export const updateTracking = async (
   req: Request<{ id: string }, object, UpdateTrackingBody>,
@@ -577,6 +646,7 @@ export const updateTracking = async (
       return;
     }
 
+    // Update resi + status SHIPPED (shipped_at di-set oleh DB trigger)
     const result = await query(
       `UPDATE orders SET
         tracking_number = $1,
@@ -610,6 +680,8 @@ export const updateTracking = async (
 
 // ==========================================
 // PATCH /api/admin/orders/:id/delivered (admin)
+// Admin konfirmasi barang sampai → DELIVERED
+// Hanya bisa dari status SHIPPED
 // ==========================================
 export const markAsDelivered = async (
   req: Request<{ id: string }>,
@@ -634,6 +706,7 @@ export const markAsDelivered = async (
       return;
     }
 
+    // delivered_at di-set otomatis oleh DB trigger
     const result = await query(
       `UPDATE orders SET status = 'DELIVERED' WHERE id = $1 RETURNING *`,
       [req.params.id],
@@ -654,6 +727,8 @@ export const markAsDelivered = async (
 
 // ==========================================
 // PATCH /api/orders/:orderCode/confirm (public)
+// Customer konfirmasi pesanan diterima → DONE
+// Hanya bisa dari status DELIVERED
 // ==========================================
 export const confirmDelivery = async (
   req: Request<{ orderCode: string }>,
@@ -678,6 +753,7 @@ export const confirmDelivery = async (
       return;
     }
 
+    // confirmed_at di-set otomatis oleh DB trigger
     const result = await query(
       `UPDATE orders SET status = 'DONE' WHERE order_code = $1 RETURNING *`,
       [req.params.orderCode],

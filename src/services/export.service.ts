@@ -109,6 +109,8 @@ export const exportOrdersToExcel = async (
       o.customer_province,
       o.status,
       o.total_amount,
+      o.discount_amount,
+      o.voucher_code,
       o.payment_method,
       o.payment_bank,
       o.expedition_name,
@@ -127,21 +129,24 @@ export const exportOrdersToExcel = async (
   );
 
   // ==========================================
-  // QUERY PENDAPATAN PER BULAN (hanya order PAID/PROCESSING/SHIPPED/DELIVERED/DONE)
+  // QUERY PENDAPATAN PER BULAN
+  // Menggunakan total_amount (sudah setelah diskon)
+  // dan menyertakan total_discount untuk referensi
   // ==========================================
   const revenueResult = await query(
     `SELECT
-      TO_CHAR(paid_at, 'YYYY-MM') AS bulan,
-      TO_CHAR(paid_at, 'Month YYYY') AS bulan_label,
+      TO_CHAR(DATE_TRUNC('month', paid_at), 'YYYY-MM') AS bulan,
+      TO_CHAR(DATE_TRUNC('month', paid_at), 'Month YYYY') AS bulan_label,
       COUNT(*) AS jumlah_order,
       SUM(total_amount) AS total_pendapatan,
+      SUM(discount_amount) AS total_diskon,
       COUNT(CASE WHEN status = 'DONE' THEN 1 END) AS order_selesai,
       COUNT(CASE WHEN status IN ('PAID','PROCESSING','SHIPPED','DELIVERED') THEN 1 END) AS order_proses
      FROM orders
      WHERE status IN ('PAID','PROCESSING','SHIPPED','DELIVERED','DONE')
        AND paid_at IS NOT NULL
-     GROUP BY TO_CHAR(paid_at, 'YYYY-MM'), TO_CHAR(paid_at, 'Month YYYY')
-     ORDER BY bulan ASC`,
+     GROUP BY DATE_TRUNC('month', paid_at)
+     ORDER BY DATE_TRUNC('month', paid_at) ASC`,
   );
 
   // ==========================================
@@ -188,6 +193,8 @@ export const exportOrdersToExcel = async (
     SHIPPED: "FFF97316",
     DELIVERED: "FF10B981",
     DONE: "FF6B7280",
+    EXPIRED: "FFD1D5DB",
+    REFUNDED: "FFEF4444",
   };
 
   orderSheet.columns = [
@@ -200,7 +207,10 @@ export const exportOrdersToExcel = async (
     { header: "Kota", key: "customer_city", width: 16 },
     { header: "Provinsi", key: "customer_province", width: 18 },
     { header: "Produk", key: "products", width: 40 },
-    { header: "Total", key: "total_amount", width: 18 },
+    { header: "Subtotal Produk", key: "subtotal_produk", width: 18 },
+    { header: "Diskon", key: "discount_amount", width: 14 },
+    { header: "Kode Voucher", key: "voucher_code", width: 16 },
+    { header: "Total Dibayar", key: "total_amount", width: 18 },
     { header: "Status", key: "status", width: 14 },
     { header: "Pembayaran", key: "payment_method", width: 14 },
     { header: "Bank", key: "payment_bank", width: 12 },
@@ -215,6 +225,9 @@ export const exportOrdersToExcel = async (
   styleHeaderRow(orderSheet.getRow(1));
 
   ordersResult.rows.forEach((order, i) => {
+    const subtotalProduk =
+      Number(order.total_amount) + Number(order.discount_amount);
+
     const row = orderSheet.addRow({
       order_code: order.order_code,
       created_at: order.created_at
@@ -227,7 +240,13 @@ export const exportOrdersToExcel = async (
       customer_city: order.customer_city ?? "-",
       customer_province: order.customer_province ?? "-",
       products: order.products ?? "-",
-      total_amount: `Rp ${formatRupiah(order.total_amount)}`,
+      subtotal_produk: `Rp ${formatRupiah(subtotalProduk)}`,
+      discount_amount:
+        Number(order.discount_amount) > 0
+          ? `-Rp ${formatRupiah(Number(order.discount_amount))}`
+          : "-",
+      voucher_code: order.voucher_code ?? "-",
+      total_amount: `Rp ${formatRupiah(Number(order.total_amount))}`,
       status: order.status,
       payment_method: order.payment_method ?? "-",
       payment_bank: order.payment_bank?.toUpperCase() ?? "-",
@@ -256,18 +275,37 @@ export const exportOrdersToExcel = async (
       pattern: "solid",
       fgColor: { argb: statusColors[order.status] ?? "FF6B7280" },
     };
-    statusCell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 10 };
+    statusCell.font = {
+      bold: true,
+      color: {
+        argb: ["EXPIRED", "REFUNDED"].includes(order.status)
+          ? "FF000000"
+          : "FFFFFFFF",
+      },
+      size: 10,
+    };
     statusCell.alignment = { horizontal: "center", vertical: "middle" };
+
+    // Warnai kolom diskon jika ada
+    if (Number(order.discount_amount) > 0) {
+      const discountCell = row.getCell("discount_amount");
+      discountCell.font = { color: { argb: "FFEF4444" }, bold: true };
+    }
   });
 
   // Summary row orders
-  const totalAllOrders = ordersResult.rows.reduce(
+  const totalRevenue = ordersResult.rows.reduce(
     (sum, o) => sum + Number(o.total_amount),
+    0,
+  );
+  const totalDiskon = ordersResult.rows.reduce(
+    (sum, o) => sum + Number(o.discount_amount),
     0,
   );
   const summaryOrderRow = orderSheet.addRow({
     order_code: `Total: ${ordersResult.rows.length} order`,
-    total_amount: `Rp ${formatRupiah(totalAllOrders)}`,
+    discount_amount: totalDiskon > 0 ? `-Rp ${formatRupiah(totalDiskon)}` : "-",
+    total_amount: `Rp ${formatRupiah(totalRevenue)}`,
   });
   summaryOrderRow.eachCell((cell) => {
     cell.font = { bold: true };
@@ -282,6 +320,8 @@ export const exportOrdersToExcel = async (
 
   // ==========================================
   // SHEET 2: PENDAPATAN PER BULAN
+  // total_pendapatan = total_amount (sudah setelah diskon)
+  // total_diskon     = akumulasi diskon voucher di bulan itu
   // ==========================================
   const revenueSheet = workbook.addWorksheet("Pendapatan per Bulan");
 
@@ -290,6 +330,7 @@ export const exportOrdersToExcel = async (
     { header: "Jumlah Order", key: "jumlah_order", width: 16 },
     { header: "Order Selesai", key: "order_selesai", width: 16 },
     { header: "Order Proses", key: "order_proses", width: 16 },
+    { header: "Total Diskon", key: "total_diskon", width: 18 },
     { header: "Total Pendapatan", key: "total_pendapatan", width: 22 },
   ];
 
@@ -301,6 +342,10 @@ export const exportOrdersToExcel = async (
       jumlah_order: Number(row.jumlah_order),
       order_selesai: Number(row.order_selesai),
       order_proses: Number(row.order_proses),
+      total_diskon:
+        Number(row.total_diskon) > 0
+          ? `-Rp ${formatRupiah(Number(row.total_diskon))}`
+          : "-",
       total_pendapatan: `Rp ${formatRupiah(Number(row.total_pendapatan))}`,
     });
     styleDataRow(dataRow, i);
@@ -308,21 +353,33 @@ export const exportOrdersToExcel = async (
     // Warnai kolom total pendapatan
     const pendapatanCell = dataRow.getCell("total_pendapatan");
     pendapatanCell.font = { bold: true, color: { argb: "FF166534" } };
+
+    // Warnai kolom total diskon jika ada
+    if (Number(row.total_diskon) > 0) {
+      const diskonCell = dataRow.getCell("total_diskon");
+      diskonCell.font = { color: { argb: "FFEF4444" } };
+    }
   });
 
   // Summary row revenue
-  const totalRevenue = revenueResult.rows.reduce(
+  const totalRevenueAll = revenueResult.rows.reduce(
     (sum, r) => sum + Number(r.total_pendapatan),
     0,
   );
-  const totalOrders = revenueResult.rows.reduce(
+  const totalDiskonAll = revenueResult.rows.reduce(
+    (sum, r) => sum + Number(r.total_diskon),
+    0,
+  );
+  const totalOrdersAll = revenueResult.rows.reduce(
     (sum, r) => sum + Number(r.jumlah_order),
     0,
   );
   const summaryRevenueRow = revenueSheet.addRow({
     bulan_label: "TOTAL",
-    jumlah_order: totalOrders,
-    total_pendapatan: `Rp ${formatRupiah(totalRevenue)}`,
+    jumlah_order: totalOrdersAll,
+    total_diskon:
+      totalDiskonAll > 0 ? `-Rp ${formatRupiah(totalDiskonAll)}` : "-",
+    total_pendapatan: `Rp ${formatRupiah(totalRevenueAll)}`,
   });
   summaryRevenueRow.eachCell((cell) => {
     cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
