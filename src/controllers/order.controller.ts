@@ -14,7 +14,7 @@ import {
   sendDeliveryConfirmEmail,
 } from "../services/email.service";
 import { verifyDownloadToken } from "../services/download.service";
-import { validateVoucherCode, calculateDiscount } from "./voucher.controller";
+import { validateVoucherCode } from "./voucher.controller";
 
 // ==========================================
 // HELPER: generate order code
@@ -48,9 +48,9 @@ export const createOrder = async (
       items,
       notes,
       no_cancel_ack,
+      voucher_code,
     } = req.body;
 
-    // Validasi field wajib
     if (
       !customer_name ||
       !customer_email ||
@@ -65,7 +65,6 @@ export const createOrder = async (
       return;
     }
 
-    // Customer harus acknowledge tidak bisa cancel/refund
     if (!no_cancel_ack) {
       res.status(400).json({
         success: false,
@@ -134,15 +133,43 @@ export const createOrder = async (
         expeditionName = expResult.rows[0].name;
       }
 
-      // 4. Buat order
+      // 4. Validasi & hitung diskon voucher
+      let discountAmount = 0;
+      let appliedVoucherCode: string | null = null;
+
+      if (voucher_code) {
+        const voucherResult = await validateVoucherCode(
+          voucher_code,
+          totalAmount,
+          customer_email,
+        );
+
+        if (!voucherResult.valid) {
+          throw new Error(voucherResult.message);
+        }
+
+        discountAmount = voucherResult.voucher!.discount_amount;
+        appliedVoucherCode = voucherResult.voucher!.code;
+
+        // Increment used_count
+        await client.query(
+          "UPDATE vouchers SET used_count = used_count + 1 WHERE id = $1",
+          [voucherResult.voucher!.id],
+        );
+      }
+
+      const finalAmount = Math.max(0, totalAmount - discountAmount);
+
+      // 5. Buat order
       const orderCode = generateOrderCode();
       const orderResult = await client.query(
         `INSERT INTO orders (
           order_code, customer_name, customer_email, customer_phone,
           customer_address, customer_city, customer_province, customer_postal_code,
-          total_amount, expedition_id, expedition_name,
+          total_amount, discount_amount, voucher_code,
+          expedition_id, expedition_name,
           payment_method, payment_bank, notes, no_cancel_ack
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
         [
           orderCode,
           customer_name,
@@ -152,7 +179,9 @@ export const createOrder = async (
           customer_city ?? null,
           customer_province ?? null,
           customer_postal_code ?? null,
-          totalAmount,
+          finalAmount,
+          discountAmount,
+          appliedVoucherCode,
           expedition_id ?? null,
           expeditionName,
           payment_method,
@@ -164,9 +193,7 @@ export const createOrder = async (
 
       const newOrder = orderResult.rows[0];
 
-      // 5. Insert order items + kurangi stok
-      // download_url disimpan sebagai raw URL dari produk (bukan signed)
-      // Signed URL di-generate saat email payment_success dikirim
+      // 6. Insert order items + kurangi stok
       for (const item of orderItems) {
         const { product, quantity, subtotal } = item;
 
@@ -194,7 +221,6 @@ export const createOrder = async (
             quantity,
             product.price,
             subtotal,
-            // Simpan raw download_url dari produk; signed URL di-generate saat email dikirim
             product.download_url ?? null,
             downloadExpiresAt?.toISOString() ?? null,
           ],
@@ -208,13 +234,34 @@ export const createOrder = async (
         }
       }
 
+      // 7. Catat pemakaian voucher
+      if (appliedVoucherCode && voucher_code) {
+        const voucherRow = await client.query(
+          "SELECT id FROM vouchers WHERE code = $1",
+          [appliedVoucherCode],
+        );
+        if (voucherRow.rowCount! > 0) {
+          await client.query(
+            `INSERT INTO voucher_uses (voucher_id, order_id, customer_email)
+             VALUES ($1,$2,$3)`,
+            [voucherRow.rows[0].id, newOrder.id, customer_email.toLowerCase()],
+          );
+        }
+      }
+
       return newOrder;
     });
 
     res.status(201).json({
       success: true,
       message: "Order berhasil dibuat",
-      data: { order_id: order.id, order_code: order.order_code },
+      data: {
+        order_id: order.id,
+        order_code: order.order_code,
+        total_amount: order.total_amount,
+        discount_amount: order.discount_amount,
+        voucher_code: order.voucher_code,
+      },
     });
   } catch (err) {
     const message =
@@ -226,7 +273,6 @@ export const createOrder = async (
 
 // ==========================================
 // GET /api/orders/track/:orderCode (public)
-// download_url TIDAK di-expose di tracking
 // ==========================================
 export const trackOrder = async (
   req: Request<{ orderCode: string }>,
@@ -235,6 +281,7 @@ export const trackOrder = async (
   try {
     const orderResult = await query(
       `SELECT id, order_code, customer_name, status, total_amount,
+              discount_amount, voucher_code,
               expedition_name, tracking_number, payment_method, payment_bank,
               paid_at, shipped_at, delivered_at, confirmed_at, created_at
        FROM orders WHERE order_code = $1`,
@@ -250,7 +297,6 @@ export const trackOrder = async (
 
     const order = orderResult.rows[0];
 
-    // Sengaja tidak expose download_url di sini — akses via signed URL dari email
     const itemsResult = await query(
       `SELECT product_name, product_type, quantity, price, subtotal
        FROM order_items WHERE order_id = $1`,
@@ -270,8 +316,6 @@ export const trackOrder = async (
 
 // ==========================================
 // GET /api/orders/download/:token (public)
-// Customer klik link dari email → redirect ke download_url asli
-// Token di-verify: signature + expiry
 // ==========================================
 export const downloadFile = async (
   req: Request<{ token: string }>,
@@ -280,7 +324,6 @@ export const downloadFile = async (
   try {
     const payload = verifyDownloadToken(req.params.token);
 
-    // Ambil order_item berdasarkan item_id + order_id dari token
     const itemResult = await query(
       `SELECT oi.download_url, oi.download_expires_at, oi.product_name,
               o.status
@@ -297,7 +340,6 @@ export const downloadFile = async (
 
     const item = itemResult.rows[0];
 
-    // Order harus sudah PAID atau lebih
     const paidStatuses = ["PAID", "PROCESSING", "SHIPPED", "DELIVERED", "DONE"];
     if (!paidStatuses.includes(item.status)) {
       res.status(403).json({
@@ -315,7 +357,6 @@ export const downloadFile = async (
       return;
     }
 
-    // Double-check expiry dari DB (sebagai failsafe selain token expiry)
     if (
       item.download_expires_at &&
       new Date() > new Date(item.download_expires_at)
@@ -327,14 +368,12 @@ export const downloadFile = async (
       return;
     }
 
-    // Redirect ke URL asli (bisa S3, Cloudflare R2, atau local)
     res.redirect(302, item.download_url);
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Internal server error";
     console.error("downloadFile error:", err);
 
-    // Expired atau invalid → 410 Gone
     if (
       message === "Link download sudah kadaluarsa" ||
       message === "Token tidak valid"
@@ -475,8 +514,8 @@ export const updateOrderStatus = async (
     }
 
     const currentStatus = existing.rows[0].status as OrderStatus;
-
     const expectedNext = VALID_STATUS_TRANSITIONS[currentStatus];
+
     if (expectedNext !== status) {
       res.status(400).json({
         success: false,

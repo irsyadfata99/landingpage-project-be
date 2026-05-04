@@ -70,6 +70,12 @@ export const createOrderSchema = z
       })
       .optional(),
 
+    voucher_code: z
+      .string()
+      .min(3, "Kode voucher minimal 3 karakter")
+      .max(50, "Kode voucher maksimal 50 karakter")
+      .optional(),
+
     items: z
       .array(orderItemSchema)
       .min(1, "Minimal 1 item dalam order")

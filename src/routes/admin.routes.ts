@@ -71,6 +71,22 @@ import { loginRateLimit } from "../app";
 import multer from "multer";
 import { getAnalyticsSummary } from "../controllers/analytics.controller";
 
+import {
+  getAllVouchers,
+  getVoucherById,
+  createVoucher,
+  updateVoucher,
+  deleteVoucher,
+  toggleVoucher,
+} from "../controllers/voucher.controller";
+import { createVoucherSchema } from "../validators/voucher.validator";
+
+import {
+  getAllReviews,
+  approveReview,
+  deleteReview,
+} from "../controllers/review.controller";
+
 const router = Router();
 
 // uploadFields untuk site-config (logo + favicon) — pakai memory storage
@@ -176,5 +192,17 @@ router.put("/withdrawal/settings", updateWithdrawalSettings);
 router.get("/withdrawal/history", getWithdrawalHistory);
 router.post("/withdrawal/request", requestWithdrawal);
 router.patch("/withdrawal/:id/status", updateWithdrawalStatus);
+
+// VOUCHERS
+router.get("/vouchers", getAllVouchers);
+router.get("/vouchers/:id", getVoucherById);
+router.post("/vouchers", validate(createVoucherSchema), createVoucher);
+router.put("/vouchers/:id", updateVoucher);
+router.delete("/vouchers/:id", deleteVoucher);
+router.patch("/vouchers/:id/toggle", toggleVoucher);
+
+router.get("/reviews", getAllReviews);
+router.patch("/reviews/:id/approve", approveReview);
+router.delete("/reviews/:id", deleteReview);
 
 export default router;
