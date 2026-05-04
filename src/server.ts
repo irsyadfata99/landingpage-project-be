@@ -3,6 +3,10 @@ dotenv.config();
 
 import app from "./app";
 import pool from "./config/db";
+import {
+  startExpireOrdersJob,
+  stopExpireOrdersJob,
+} from "./jobs/expire-orders.job";
 
 const PORT = Number(process.env.PORT) || 5000;
 
@@ -11,6 +15,9 @@ const startServer = async (): Promise<void> => {
     // Test koneksi database sebelum server start
     await pool.query("SELECT 1");
     console.log("✅ Database connection verified");
+
+    // Jalankan cron job expire orders
+    startExpireOrdersJob();
 
     app.listen(PORT, () => {
       console.log("==========================================");
@@ -29,12 +36,14 @@ const startServer = async (): Promise<void> => {
 // Graceful shutdown
 process.on("SIGTERM", async () => {
   console.log("🛑 SIGTERM received, shutting down gracefully...");
+  stopExpireOrdersJob();
   await pool.end();
   process.exit(0);
 });
 
 process.on("SIGINT", async () => {
   console.log("🛑 SIGINT received, shutting down gracefully...");
+  stopExpireOrdersJob();
   await pool.end();
   process.exit(0);
 });

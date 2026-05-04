@@ -8,7 +8,10 @@ import {
   verifyWebhookSignature,
 } from "../config/tripay";
 import { ApiResponse } from "../types/response.types";
-import { sendPaymentSuccessEmail } from "../services/email.service";
+import {
+  sendPaymentSuccessEmail,
+  sendRefundNotificationEmail,
+} from "../services/email.service";
 
 // ==========================================
 // HELPER: HTTP request ke Tripay API
@@ -162,7 +165,6 @@ export const chargePayment = async (
       paymentUrl = tripayData.pay_code ?? "";
     }
 
-    // FIX #1: gunakan tripay_order_id
     await query(
       `UPDATE orders SET
         tripay_order_id = $1,
@@ -215,6 +217,11 @@ export const chargePayment = async (
 
 // ==========================================
 // POST /api/payment/webhook (Tripay callback)
+// Status yang ditangani:
+//   PAID    → update order ke PAID + kirim email payment success
+//   REFUND  → update order ke REFUNDED + kirim email notifikasi ke admin
+//   EXPIRED → log saja (order sudah di-expire oleh cron job)
+//   FAILED  → log saja
 // ==========================================
 export const handleWebhook = async (
   req: Request,
@@ -260,6 +267,9 @@ export const handleWebhook = async (
 
     const order = orderResult.rows[0];
 
+    // ==========================================
+    // PAID
+    // ==========================================
     if (status === "PAID" && order.status === "PENDING") {
       await query(`UPDATE orders SET status = 'PAID' WHERE id = $1`, [
         order.id,
@@ -282,9 +292,51 @@ export const handleWebhook = async (
       console.log(
         `✅ Order ${merchant_ref} PAID via Tripay (ref: ${reference})`,
       );
+
+      // ==========================================
+      // REFUND
+      // Order yang bisa di-refund: PAID atau PROCESSING
+      // ==========================================
+    } else if (status === "REFUND") {
+      const refundableStatuses = ["PAID", "PROCESSING"];
+
+      if (refundableStatuses.includes(order.status)) {
+        await query(`UPDATE orders SET status = 'REFUNDED' WHERE id = $1`, [
+          order.id,
+        ]);
+
+        console.warn(
+          `⚠️  Order ${merchant_ref} REFUNDED via Tripay (ref: ${reference})`,
+        );
+
+        // Kirim notifikasi ke admin (non-blocking)
+        sendRefundNotificationEmail(
+          {
+            order_code: order.order_code,
+            customer_name: order.customer_name,
+            customer_email: order.customer_email,
+            total_amount: order.total_amount,
+            payment_method: order.payment_method,
+            payment_bank: order.payment_bank,
+            tripay_order_id: order.tripay_order_id,
+          },
+          reference,
+        ).catch((err) =>
+          console.error("Gagal kirim email notifikasi refund:", err),
+        );
+      } else {
+        // Order sudah di status lain (misal SHIPPED/DELIVERED) — log saja
+        console.warn(
+          `⚠️  Tripay REFUND untuk order ${merchant_ref} diabaikan — status saat ini: ${order.status}`,
+        );
+      }
+
+      // ==========================================
+      // EXPIRED / FAILED
+      // ==========================================
     } else if (["EXPIRED", "FAILED"].includes(status)) {
       console.warn(
-        `⚠️  Tripay transaction ${status} untuk order ${merchant_ref}`,
+        `⚠️  Tripay transaction ${status} untuk order ${merchant_ref} (ref: ${reference})`,
       );
     }
 
@@ -303,7 +355,6 @@ export const checkPaymentStatus = async (
   res: Response<ApiResponse>,
 ): Promise<void> => {
   try {
-    // FIX #1: gunakan tripay_order_id
     const orderResult = await query(
       `SELECT id, order_code, status, payment_method, payment_bank,
         payment_url, total_amount, paid_at, tripay_order_id

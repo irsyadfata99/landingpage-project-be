@@ -62,7 +62,12 @@ import {
 } from "../controllers/withdrawal.controller";
 import { authMiddleware } from "../middlewares/auth.middleware";
 import { uploadSingle } from "../middlewares/upload.middleware";
-import { loginRateLimit } from "../app"; // FIX #3
+import { validate } from "../middlewares/validate.middleware";
+import {
+  loginSchema,
+  changePasswordSchema,
+} from "../validators/auth.validator";
+import { loginRateLimit } from "../app";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -83,9 +88,9 @@ const uploadFields = multer({ storage }).fields([
 ]);
 
 // ==========================================
-// AUTH (public) — FIX #3: rate limit login
+// AUTH (public) — rate limit + validasi Zod
 // ==========================================
-router.post("/login", loginRateLimit, login);
+router.post("/login", loginRateLimit, validate(loginSchema), login);
 
 // ==========================================
 // Protected — semua route di bawah butuh token
@@ -94,7 +99,7 @@ router.use(authMiddleware);
 
 // Profile
 router.get("/me", getMe);
-router.put("/password", changePassword);
+router.put("/password", validate(changePasswordSchema), changePassword);
 
 // ==========================================
 // CONTENT — Landing Page

@@ -6,6 +6,7 @@ import {
   PaymentSuccessTemplateData,
   DeliveryConfirmTemplateData,
 } from "../types/email-template.types";
+import { generateDownloadUrl } from "./download.service";
 
 // ==========================================
 // TRANSPORTER
@@ -125,12 +126,17 @@ const renderItemsTable = (items: OrderWithItems["items"]): string => `
 
 // ==========================================
 // HELPER: render download links produk digital
+// Menggunakan signed URL — bukan raw download_url
 // ==========================================
-const renderDownloadLinks = (items: OrderWithItems["items"]): string => {
+const renderDownloadLinks = (
+  items: OrderWithItems["items"],
+  orderId: string,
+): string => {
   const digitalItems = items.filter(
     (i) =>
       (i.product_type === "DIGITAL" || i.product_type === "BOTH") &&
-      i.download_url,
+      i.download_url &&
+      i.download_expires_at,
   );
 
   if (!digitalItems.length) return "";
@@ -139,14 +145,17 @@ const renderDownloadLinks = (items: OrderWithItems["items"]): string => {
     <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:6px;padding:16px;margin:16px 0;">
       <p style="margin:0 0 8px;font-weight:bold;color:#166534;">📥 Link Download Produk Digital</p>
       ${digitalItems
-        .map(
-          (i) => `
-        <p style="margin:4px 0;font-size:13px;">
-          <strong>${i.product_name}:</strong><br/>
-          <a href="${i.download_url}" style="color:#3B82F6;">${i.download_url}</a><br/>
-          <small style="color:#666;">Link aktif hingga: ${formatDate(i.download_expires_at)}</small>
-        </p>`,
-        )
+        .map((i) => {
+          const expiresAt = new Date(i.download_expires_at!);
+          // Generate signed URL — token berlaku sampai download_expires_at
+          const signedUrl = generateDownloadUrl(i.id, orderId, expiresAt);
+          return `
+            <p style="margin:4px 0;font-size:13px;">
+              <strong>${i.product_name}:</strong><br/>
+              <a href="${signedUrl}" style="color:#3B82F6;">${signedUrl}</a><br/>
+              <small style="color:#666;">Link aktif hingga: ${formatDate(i.download_expires_at)}</small>
+            </p>`;
+        })
         .join("")}
     </div>`;
 };
@@ -168,6 +177,7 @@ const renderShippingAddress = (order: OrderWithItems): string =>
 
 // ==========================================
 // EMAIL 1: Payment Sukses
+// Signed URL di-generate di sini, saat email dikirim
 // ==========================================
 export const sendPaymentSuccessEmail = async (
   order: OrderWithItems,
@@ -184,7 +194,8 @@ export const sendPaymentSuccessEmail = async (
         ? `Transfer Bank (${order.payment_bank?.toUpperCase() ?? "-"})`
         : "QRIS",
     items: renderItemsTable(order.items),
-    download_links: renderDownloadLinks(order.items),
+    // Signed URL di-generate di sini dengan order.id
+    download_links: renderDownloadLinks(order.items, order.id),
   };
 
   const subject = renderTemplate(
@@ -209,7 +220,6 @@ export const sendPaymentSuccessEmail = async (
 
 // ==========================================
 // EMAIL 2: Barang Dikirim
-// Button "Konfirmasi Diterima" mengarah ke URL konfirmasi customer
 // ==========================================
 export const sendShippingEmail = async (
   order: OrderWithItems,
@@ -219,7 +229,6 @@ export const sendShippingEmail = async (
 
   const confirmUrl = `${process.env.FRONTEND_URL}/orders/${order.order_code}/confirm`;
 
-  // confirm_url ditambahkan ke data agar {{confirm_url}} ter-replace di template
   const data: Record<string, string> = {
     customer_name: order.customer_name,
     order_code: order.order_code,
@@ -245,7 +254,96 @@ export const sendShippingEmail = async (
 };
 
 // ==========================================
-// EMAIL 3: Pesanan Diterima (customer konfirmasi)
+// EMAIL 3: Notifikasi REFUND ke Admin
+// Dikirim ke EMAIL_USER saat Tripay webhook REFUND diterima
+// ==========================================
+export const sendRefundNotificationEmail = async (
+  order: Pick<
+    OrderWithItems,
+    | "order_code"
+    | "customer_name"
+    | "customer_email"
+    | "total_amount"
+    | "payment_method"
+    | "payment_bank"
+    | "tripay_order_id"
+  >,
+  tripayReference: string,
+): Promise<void> => {
+  const adminEmail = process.env.EMAIL_USER;
+  if (!adminEmail) {
+    console.warn(
+      "⚠️  EMAIL_USER tidak dikonfigurasi, notifikasi refund tidak dikirim",
+    );
+    return;
+  }
+
+  const transporter = createTransporter();
+
+  const paymentMethod =
+    order.payment_method === "bank_transfer"
+      ? `Transfer Bank (${order.payment_bank?.toUpperCase() ?? "-"})`
+      : "QRIS";
+
+  await transporter.sendMail({
+    from: FROM,
+    to: adminEmail,
+    subject: `⚠️ REFUND Diterima - ${order.order_code}`,
+    html: `
+      <!DOCTYPE html>
+      <html lang="id">
+      <head><meta charset="UTF-8"/></head>
+      <body style="font-family:Arial,sans-serif;background:#f4f4f4;padding:30px 0;">
+        <table width="600" align="center" style="background:#fff;border-radius:8px;overflow:hidden;">
+          <tr><td style="background:#EF4444;padding:24px 32px;">
+            <h1 style="color:#fff;margin:0;">⚠️ Notifikasi Refund</h1>
+          </td></tr>
+          <tr><td style="padding:32px;">
+            <p style="color:#555;">Tripay telah mengirimkan notifikasi <strong>REFUND</strong> untuk order berikut:</p>
+            <table width="100%" cellpadding="8" style="background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;">
+              <tr>
+                <td style="color:#666;font-size:13px;width:40%;">No. Order</td>
+                <td style="font-weight:bold;">${order.order_code}</td>
+              </tr>
+              <tr>
+                <td style="color:#666;font-size:13px;">Customer</td>
+                <td>${order.customer_name} (${order.customer_email})</td>
+              </tr>
+              <tr>
+                <td style="color:#666;font-size:13px;">Total</td>
+                <td style="font-weight:bold;">${formatRupiah(order.total_amount)}</td>
+              </tr>
+              <tr>
+                <td style="color:#666;font-size:13px;">Metode Bayar</td>
+                <td>${paymentMethod}</td>
+              </tr>
+              <tr>
+                <td style="color:#666;font-size:13px;">Tripay Reference</td>
+                <td style="font-family:monospace;">${tripayReference}</td>
+              </tr>
+              <tr>
+                <td style="color:#666;font-size:13px;">Waktu</td>
+                <td>${formatDate(new Date())}</td>
+              </tr>
+            </table>
+            <p style="color:#991b1b;font-size:13px;margin-top:16px;">
+              ⚠️ Harap segera periksa dashboard Tripay dan lakukan tindakan yang diperlukan.
+            </p>
+          </td></tr>
+          <tr><td style="background:#f8f8f8;padding:16px 32px;text-align:center;border-top:1px solid #eee;">
+            <p style="color:#999;font-size:12px;margin:0;">Email ini dikirim otomatis. Jangan balas email ini.</p>
+          </td></tr>
+        </table>
+      </body>
+      </html>
+    `,
+  });
+
+  console.log(`📧 Email notifikasi refund dikirim ke admin (${adminEmail})`);
+};
+
+// ==========================================
+// EMAIL 4: Pesanan Diterima (customer konfirmasi)
 // ==========================================
 export const sendDeliveryConfirmEmail = async (
   order: OrderWithItems,

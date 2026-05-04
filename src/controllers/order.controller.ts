@@ -13,6 +13,7 @@ import {
   sendShippingEmail,
   sendDeliveryConfirmEmail,
 } from "../services/email.service";
+import { verifyDownloadToken } from "../services/download.service";
 
 // ==========================================
 // HELPER: generate order code
@@ -156,24 +157,27 @@ export const createOrder = async (
           payment_method,
           bank ?? null,
           notes ?? null,
-          true, // no_cancel_ack sudah divalidasi di atas
+          true,
         ],
       );
 
       const newOrder = orderResult.rows[0];
 
       // 5. Insert order items + kurangi stok
+      // download_url disimpan sebagai raw URL dari produk (bukan signed)
+      // Signed URL di-generate saat email payment_success dikirim
       for (const item of orderItems) {
         const { product, quantity, subtotal } = item;
 
-        let downloadExpiresAt = null;
+        let downloadExpiresAt: Date | null = null;
         if (
           product.product_type === "DIGITAL" ||
           product.product_type === "BOTH"
         ) {
-          const expDate = new Date();
-          expDate.setHours(expDate.getHours() + product.download_expires_hours);
-          downloadExpiresAt = expDate.toISOString();
+          downloadExpiresAt = new Date();
+          downloadExpiresAt.setHours(
+            downloadExpiresAt.getHours() + product.download_expires_hours,
+          );
         }
 
         await client.query(
@@ -189,8 +193,9 @@ export const createOrder = async (
             quantity,
             product.price,
             subtotal,
+            // Simpan raw download_url dari produk; signed URL di-generate saat email dikirim
             product.download_url ?? null,
-            downloadExpiresAt,
+            downloadExpiresAt?.toISOString() ?? null,
           ],
         );
 
@@ -220,6 +225,7 @@ export const createOrder = async (
 
 // ==========================================
 // GET /api/orders/track/:orderCode (public)
+// download_url TIDAK di-expose di tracking
 // ==========================================
 export const trackOrder = async (
   req: Request<{ orderCode: string }>,
@@ -242,6 +248,8 @@ export const trackOrder = async (
     }
 
     const order = orderResult.rows[0];
+
+    // Sengaja tidak expose download_url di sini — akses via signed URL dari email
     const itemsResult = await query(
       `SELECT product_name, product_type, quantity, price, subtotal
        FROM order_items WHERE order_id = $1`,
@@ -255,6 +263,85 @@ export const trackOrder = async (
     });
   } catch (err) {
     console.error("trackOrder error:", err);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+// ==========================================
+// GET /api/orders/download/:token (public)
+// Customer klik link dari email → redirect ke download_url asli
+// Token di-verify: signature + expiry
+// ==========================================
+export const downloadFile = async (
+  req: Request<{ token: string }>,
+  res: Response,
+): Promise<void> => {
+  try {
+    const payload = verifyDownloadToken(req.params.token);
+
+    // Ambil order_item berdasarkan item_id + order_id dari token
+    const itemResult = await query(
+      `SELECT oi.download_url, oi.download_expires_at, oi.product_name,
+              o.status
+       FROM order_items oi
+       JOIN orders o ON o.id = oi.order_id
+       WHERE oi.id = $1 AND oi.order_id = $2`,
+      [payload.item_id, payload.order_id],
+    );
+
+    if (itemResult.rowCount === 0) {
+      res.status(404).json({ success: false, message: "Item tidak ditemukan" });
+      return;
+    }
+
+    const item = itemResult.rows[0];
+
+    // Order harus sudah PAID atau lebih
+    const paidStatuses = ["PAID", "PROCESSING", "SHIPPED", "DELIVERED", "DONE"];
+    if (!paidStatuses.includes(item.status)) {
+      res.status(403).json({
+        success: false,
+        message: "Pembayaran belum dikonfirmasi",
+      });
+      return;
+    }
+
+    if (!item.download_url) {
+      res.status(404).json({
+        success: false,
+        message: "File tidak tersedia untuk produk ini",
+      });
+      return;
+    }
+
+    // Double-check expiry dari DB (sebagai failsafe selain token expiry)
+    if (
+      item.download_expires_at &&
+      new Date() > new Date(item.download_expires_at)
+    ) {
+      res.status(410).json({
+        success: false,
+        message: "Link download sudah kadaluarsa",
+      });
+      return;
+    }
+
+    // Redirect ke URL asli (bisa S3, Cloudflare R2, atau local)
+    res.redirect(302, item.download_url);
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Internal server error";
+    console.error("downloadFile error:", err);
+
+    // Expired atau invalid → 410 Gone
+    if (
+      message === "Link download sudah kadaluarsa" ||
+      message === "Token tidak valid"
+    ) {
+      res.status(410).json({ success: false, message });
+      return;
+    }
+
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
@@ -362,8 +449,6 @@ export const getOrderById = async (
 
 // ==========================================
 // PATCH /api/admin/orders/:id/status (admin)
-// Validasi transisi status sebelum update
-// Timestamp otomatis di-set via DB trigger
 // ==========================================
 export const updateOrderStatus = async (
   req: Request<{ id: string }, object, UpdateOrderStatusBody>,
@@ -377,7 +462,6 @@ export const updateOrderStatus = async (
       return;
     }
 
-    // Ambil status saat ini
     const existing = await query(
       "SELECT id, status FROM orders WHERE id = $1",
       [req.params.id],
@@ -391,7 +475,6 @@ export const updateOrderStatus = async (
 
     const currentStatus = existing.rows[0].status as OrderStatus;
 
-    // Validasi transisi di sisi aplikasi (sebelum hit DB trigger)
     const expectedNext = VALID_STATUS_TRANSITIONS[currentStatus];
     if (expectedNext !== status) {
       res.status(400).json({
@@ -401,7 +484,6 @@ export const updateOrderStatus = async (
       return;
     }
 
-    // Update — timestamp otomatis di-set oleh DB trigger enforce_order_status_transition
     const result = await query(
       `UPDATE orders SET status = $1 WHERE id = $2 RETURNING *`,
       [status, req.params.id],
@@ -413,7 +495,6 @@ export const updateOrderStatus = async (
       data: result.rows[0],
     });
   } catch (err) {
-    // Tangkap juga error dari DB trigger
     const message =
       err instanceof Error ? err.message : "Internal server error";
     console.error("updateOrderStatus error:", err);
@@ -423,8 +504,6 @@ export const updateOrderStatus = async (
 
 // ==========================================
 // PATCH /api/admin/orders/:id/tracking (admin)
-// Input resi → otomatis set status SHIPPED
-// Hanya bisa dilakukan saat status PROCESSING
 // ==========================================
 export const updateTracking = async (
   req: Request<{ id: string }, object, UpdateTrackingBody>,
@@ -440,7 +519,6 @@ export const updateTracking = async (
       return;
     }
 
-    // Validasi: hanya bisa input resi saat status PROCESSING
     const existing = await query(
       "SELECT id, status FROM orders WHERE id = $1",
       [req.params.id],
@@ -459,7 +537,6 @@ export const updateTracking = async (
       return;
     }
 
-    // Update resi + status SHIPPED (shipped_at di-set oleh DB trigger)
     const result = await query(
       `UPDATE orders SET
         tracking_number = $1,
@@ -469,7 +546,6 @@ export const updateTracking = async (
       [tracking_number, expedition_name ?? null, req.params.id],
     );
 
-    // Kirim email notifikasi pengiriman (non-blocking)
     const updatedOrder = result.rows[0];
     const itemsResult = await query(
       "SELECT * FROM order_items WHERE order_id = $1",
@@ -494,8 +570,6 @@ export const updateTracking = async (
 
 // ==========================================
 // PATCH /api/admin/orders/:id/delivered (admin)
-// Admin konfirmasi barang sampai → DELIVERED
-// Hanya bisa dari status SHIPPED
 // ==========================================
 export const markAsDelivered = async (
   req: Request<{ id: string }>,
@@ -520,7 +594,6 @@ export const markAsDelivered = async (
       return;
     }
 
-    // delivered_at di-set otomatis oleh DB trigger
     const result = await query(
       `UPDATE orders SET status = 'DELIVERED' WHERE id = $1 RETURNING *`,
       [req.params.id],
@@ -541,8 +614,6 @@ export const markAsDelivered = async (
 
 // ==========================================
 // PATCH /api/orders/:orderCode/confirm (public)
-// Customer konfirmasi pesanan diterima → DONE
-// Hanya bisa dari status DELIVERED
 // ==========================================
 export const confirmDelivery = async (
   req: Request<{ orderCode: string }>,
@@ -567,13 +638,11 @@ export const confirmDelivery = async (
       return;
     }
 
-    // confirmed_at di-set otomatis oleh DB trigger
     const result = await query(
       `UPDATE orders SET status = 'DONE' WHERE order_code = $1 RETURNING *`,
       [req.params.orderCode],
     );
 
-    // Kirim email konfirmasi (non-blocking)
     const confirmedOrder = result.rows[0];
     const itemsResult = await query(
       "SELECT * FROM order_items WHERE order_id = $1",
