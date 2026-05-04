@@ -1,11 +1,6 @@
 import express, { Application, Request, Response, NextFunction } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import {
-  loginRateLimit,
-  checkoutRateLimit,
-  chargeRateLimit,
-} from "./config/rate-limit";
 
 dotenv.config();
 
@@ -86,5 +81,4 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   });
 });
 
-export { loginRateLimit, checkoutRateLimit, chargeRateLimit };
 export default app;
