@@ -62,13 +62,13 @@ import {
 } from "../controllers/withdrawal.controller";
 import { authMiddleware } from "../middlewares/auth.middleware";
 import { uploadSingle } from "../middlewares/upload.middleware";
+import { loginRateLimit } from "../app"; // FIX #3
 import multer from "multer";
 import path from "path";
 import fs from "fs";
 
 const router = Router();
 
-// Upload logo + favicon sekaligus untuk site config
 const uploadDir = path.join(process.cwd(), process.env.UPLOAD_DIR || "uploads");
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
@@ -83,9 +83,9 @@ const uploadFields = multer({ storage }).fields([
 ]);
 
 // ==========================================
-// AUTH (public)
+// AUTH (public) — FIX #3: rate limit login
 // ==========================================
-router.post("/login", login);
+router.post("/login", loginRateLimit, login);
 
 // ==========================================
 // Protected — semua route di bawah butuh token

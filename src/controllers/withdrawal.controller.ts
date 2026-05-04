@@ -14,7 +14,6 @@ import { ApiResponse, PaginatedResponse } from "../types/response.types";
 // BANK ACCOUNTS
 // ==========================================
 
-// GET /api/admin/bank-accounts
 export const getAllBankAccounts = async (
   _req: Request,
   res: Response<ApiResponse>,
@@ -30,7 +29,6 @@ export const getAllBankAccounts = async (
   }
 };
 
-// POST /api/admin/bank-accounts
 export const createBankAccount = async (
   req: Request<object, object, CreateBankAccountBody>,
   res: Response<ApiResponse>,
@@ -46,8 +44,6 @@ export const createBankAccount = async (
       return;
     }
 
-    // DB trigger enforce_single_active_bank akan nonaktifkan rekening lain
-    // jika is_active = true
     const result = await query(
       `INSERT INTO bank_accounts (bank_name, account_number, account_name, is_active)
        VALUES ($1,$2,$3,$4) RETURNING *`,
@@ -65,7 +61,6 @@ export const createBankAccount = async (
   }
 };
 
-// PUT /api/admin/bank-accounts/:id
 export const updateBankAccount = async (
   req: Request<{ id: string }, object, UpdateBankAccountBody>,
   res: Response<ApiResponse>,
@@ -83,7 +78,6 @@ export const updateBankAccount = async (
     const old = existing.rows[0];
     const { bank_name, account_number, account_name, is_active } = req.body;
 
-    // DB trigger akan handle single active jika is_active = true
     const result = await query(
       `UPDATE bank_accounts SET
         bank_name = $1, account_number = $2, account_name = $3, is_active = $4
@@ -108,13 +102,11 @@ export const updateBankAccount = async (
   }
 };
 
-// DELETE /api/admin/bank-accounts/:id
 export const deleteBankAccount = async (
   req: Request<{ id: string }>,
   res: Response<ApiResponse>,
 ): Promise<void> => {
   try {
-    // Tidak boleh hapus rekening yang aktif
     const existing = await query("SELECT * FROM bank_accounts WHERE id = $1", [
       req.params.id,
     ]);
@@ -133,7 +125,6 @@ export const deleteBankAccount = async (
       return;
     }
 
-    // Cek apakah ada withdrawal history yang merujuk rekening ini
     const usageCheck = await query(
       "SELECT id FROM withdrawal_history WHERE bank_account_id = $1 LIMIT 1",
       [req.params.id],
@@ -155,8 +146,6 @@ export const deleteBankAccount = async (
   }
 };
 
-// PATCH /api/admin/bank-accounts/:id/activate
-// Set rekening sebagai aktif (rekening lain otomatis nonaktif via DB trigger)
 export const activateBankAccount = async (
   req: Request<{ id: string }>,
   res: Response<ApiResponse>,
@@ -187,25 +176,19 @@ export const activateBankAccount = async (
 // WITHDRAWAL SETTINGS
 // ==========================================
 
-// GET /api/admin/withdrawal/settings
 export const getWithdrawalSettings = async (
   _req: Request,
   res: Response<ApiResponse>,
 ): Promise<void> => {
   try {
     const result = await query("SELECT * FROM withdrawal_settings LIMIT 1");
-    res.json({
-      success: true,
-      message: "OK",
-      data: result.rows[0] ?? null,
-    });
+    res.json({ success: true, message: "OK", data: result.rows[0] ?? null });
   } catch (err) {
     console.error("getWithdrawalSettings error:", err);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 
-// PUT /api/admin/withdrawal/settings
 export const updateWithdrawalSettings = async (
   req: Request<object, object, UpdateWithdrawalSettingsBody>,
   res: Response<ApiResponse>,
@@ -214,7 +197,6 @@ export const updateWithdrawalSettings = async (
     const { withdrawal_date, minimum_amount, is_auto, notification_email } =
       req.body;
 
-    // Validasi tanggal penarikan
     if (
       withdrawal_date !== undefined &&
       (withdrawal_date < 1 || withdrawal_date > 28)
@@ -273,7 +255,6 @@ export const updateWithdrawalSettings = async (
 // WITHDRAWAL HISTORY
 // ==========================================
 
-// GET /api/admin/withdrawal/history
 export const getWithdrawalHistory = async (
   req: Request<object, object, object, WithdrawalFilter>,
   res: Response<PaginatedResponse<object>>,
@@ -310,11 +291,7 @@ export const getWithdrawalHistory = async (
     const total = Number(countResult.rows[0].count);
 
     const dataResult = await query(
-      `SELECT
-        wh.*,
-        ba.bank_name,
-        ba.account_number,
-        ba.account_name
+      `SELECT wh.*, ba.bank_name, ba.account_number, ba.account_name
        FROM withdrawal_history wh
        LEFT JOIN bank_accounts ba ON ba.id = wh.bank_account_id
        ${where}
@@ -340,8 +317,6 @@ export const getWithdrawalHistory = async (
   }
 };
 
-// POST /api/admin/withdrawal/request
-// Request penarikan manual
 export const requestWithdrawal = async (
   req: Request<object, object, CreateWithdrawalBody>,
   res: Response<ApiResponse>,
@@ -365,7 +340,6 @@ export const requestWithdrawal = async (
       return;
     }
 
-    // Cek rekening valid dan aktif
     const bankResult = await query(
       "SELECT * FROM bank_accounts WHERE id = $1 AND is_active = TRUE",
       [bank_account_id],
@@ -378,7 +352,6 @@ export const requestWithdrawal = async (
       return;
     }
 
-    // Cek minimum amount dari settings
     const settingsResult = await query(
       "SELECT * FROM withdrawal_settings LIMIT 1",
     );
@@ -391,7 +364,6 @@ export const requestWithdrawal = async (
       return;
     }
 
-    // Cek apakah sudah ada penarikan di bulan ini (enforce sebulan sekali)
     const currentMonth = new Date();
     const startOfMonth = new Date(
       currentMonth.getFullYear(),
@@ -419,7 +391,6 @@ export const requestWithdrawal = async (
       return;
     }
 
-    // Cek tanggal penarikan sesuai settings
     if (settings) {
       const today = new Date().getDate();
       if (today !== settings.withdrawal_date) {
@@ -448,14 +419,13 @@ export const requestWithdrawal = async (
   }
 };
 
-// PATCH /api/admin/withdrawal/:id/status
-// Update status penarikan (PENDING → SUCCESS / FAILED)
 export const updateWithdrawalStatus = async (
   req: Request<{ id: string }, object, UpdateWithdrawalStatusBody>,
   res: Response<ApiResponse>,
 ): Promise<void> => {
   try {
-    const { status, midtrans_ref, notes } = req.body;
+    // FIX #2: midtrans_ref → tripay_ref
+    const { status, tripay_ref, notes } = req.body;
 
     if (!status) {
       res.status(400).json({ success: false, message: "Status wajib diisi" });
@@ -488,14 +458,15 @@ export const updateWithdrawalStatus = async (
       return;
     }
 
+    // FIX #2: gunakan kolom tripay_ref
     const result = await query(
       `UPDATE withdrawal_history SET
         status = $1,
-        midtrans_ref = $2,
+        tripay_ref = $2,
         notes = COALESCE($3, notes),
         processed_at = NOW()
        WHERE id = $4 RETURNING *`,
-      [status, midtrans_ref ?? null, notes ?? null, req.params.id],
+      [status, tripay_ref ?? null, notes ?? null, req.params.id],
     );
 
     res.json({

@@ -1,16 +1,16 @@
 // ==========================================
 // WITHDRAWAL TYPES
-// (Bank Account & Penarikan Dana Midtrans)
+// (Bank Account & Penarikan Dana Tripay)
 // ==========================================
 
 // --- BANK ACCOUNT ---
 
 export interface BankAccount {
   id: string;
-  bank_name: string; // contoh: 'BCA', 'BNI', 'BRI', 'Mandiri', 'Permata'
+  bank_name: string;
   account_number: string;
-  account_name: string; // nama pemilik rekening
-  is_active: boolean; // hanya satu yang aktif (di-enforce DB trigger)
+  account_name: string;
+  is_active: boolean;
   created_at: Date;
   updated_at: Date;
 }
@@ -19,7 +19,7 @@ export interface CreateBankAccountBody {
   bank_name: string;
   account_number: string;
   account_name: string;
-  is_active?: boolean; // jika true, rekening lain otomatis dinonaktifkan
+  is_active?: boolean;
 }
 
 export interface UpdateBankAccountBody extends Partial<CreateBankAccountBody> {}
@@ -28,15 +28,15 @@ export interface UpdateBankAccountBody extends Partial<CreateBankAccountBody> {}
 
 export interface WithdrawalSettings {
   id: string;
-  withdrawal_date: number; // tanggal penarikan setiap bulan (1-28)
-  minimum_amount: number; // minimal saldo untuk bisa tarik (dalam rupiah)
-  is_auto: boolean; // penarikan otomatis atau manual
-  notification_email: string | null; // email notifikasi saat penarikan
+  withdrawal_date: number;
+  minimum_amount: number;
+  is_auto: boolean;
+  notification_email: string | null;
   updated_at: Date;
 }
 
 export interface UpdateWithdrawalSettingsBody {
-  withdrawal_date?: number; // 1 - 28
+  withdrawal_date?: number;
   minimum_amount?: number;
   is_auto?: boolean;
   notification_email?: string;
@@ -51,7 +51,7 @@ export interface WithdrawalHistory {
   bank_account_id: string;
   amount: number;
   status: WithdrawalStatus;
-  midtrans_ref: string | null; // referensi dari Midtrans disbursement
+  tripay_ref: string | null; // FIX #2: midtrans_ref → tripay_ref
   notes: string | null;
   requested_at: Date;
   processed_at: Date | null;
@@ -59,7 +59,6 @@ export interface WithdrawalHistory {
   updated_at: Date;
 }
 
-// Withdrawal history dengan detail bank account (untuk tampil di admin)
 export interface WithdrawalHistoryWithBank extends WithdrawalHistory {
   bank_name: string;
   account_number: string;
@@ -74,11 +73,10 @@ export interface CreateWithdrawalBody {
 
 export interface UpdateWithdrawalStatusBody {
   status: WithdrawalStatus;
-  midtrans_ref?: string;
+  tripay_ref?: string; // FIX #2: midtrans_ref → tripay_ref
   notes?: string;
 }
 
-// Filter untuk list withdrawal history
 export interface WithdrawalFilter {
   status?: WithdrawalStatus;
   start_date?: string;

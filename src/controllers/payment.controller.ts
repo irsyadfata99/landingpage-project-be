@@ -57,7 +57,6 @@ export const chargePayment = async (
       return;
     }
 
-    // Ambil data order beserta items
     const orderResult = await query(
       `SELECT o.*, json_agg(
         json_build_object(
@@ -91,7 +90,6 @@ export const chargePayment = async (
       return;
     }
 
-    // Tentukan channel code Tripay
     let channelCode: string;
     if (order.payment_method === "qris") {
       channelCode = TRIPAY_CHANNELS.qris;
@@ -113,12 +111,10 @@ export const chargePayment = async (
       return;
     }
 
-    // Merchant ref = order code (unik)
     const merchantRef = order.order_code;
     const amount = order.total_amount;
     const signature = generateSignature(merchantRef, amount);
 
-    // Build item details
     const orderItems = order.items as {
       id: string;
       name: string;
@@ -132,7 +128,6 @@ export const chargePayment = async (
       quantity: item.quantity,
     }));
 
-    // Payload ke Tripay
     const payload = {
       method: channelCode,
       merchant_ref: merchantRef,
@@ -142,11 +137,10 @@ export const chargePayment = async (
       customer_phone: order.customer_phone,
       order_items: itemDetails,
       signature,
-      expired_time: Math.floor(Date.now() / 1000) + 24 * 60 * 60, // 24 jam
+      expired_time: Math.floor(Date.now() / 1000) + 24 * 60 * 60,
       return_url: `${process.env.FRONTEND_URL}/orders/track/${order.order_code}`,
     };
 
-    // Hit Tripay API
     const tripayData = (await tripayRequest(
       "/transaction/create",
       "POST",
@@ -161,7 +155,6 @@ export const chargePayment = async (
       expired_time: number;
     };
 
-    // Tentukan payment URL
     let paymentUrl = "";
     if (order.payment_method === "qris") {
       paymentUrl = tripayData.qr_url ?? tripayData.pay_url ?? "";
@@ -169,17 +162,16 @@ export const chargePayment = async (
       paymentUrl = tripayData.pay_code ?? "";
     }
 
-    // Simpan reference Tripay ke DB
+    // FIX #1: gunakan tripay_order_id
     await query(
       `UPDATE orders SET
-        midtrans_order_id = $1,
+        tripay_order_id = $1,
         payment_token = $2,
         payment_url = $3
        WHERE id = $4`,
       [tripayData.reference, JSON.stringify(tripayData), paymentUrl, order.id],
     );
 
-    // Response berdasarkan metode pembayaran
     if (order.payment_method === "qris") {
       res.json({
         success: true,
@@ -229,7 +221,6 @@ export const handleWebhook = async (
   res: Response<ApiResponse>,
 ): Promise<void> => {
   try {
-    // Verifikasi signature dari Tripay
     const rawBody = Buffer.isBuffer(req.body)
       ? req.body.toString()
       : typeof req.body === "string"
@@ -252,21 +243,9 @@ export const handleWebhook = async (
       return;
     }
 
-    const notification = Buffer.isBuffer(req.body)
-      ? JSON.parse(req.body.toString())
-      : typeof req.body === "string"
-        ? JSON.parse(req.body)
-        : req.body;
+    const notification = JSON.parse(rawBody);
+    const { reference, merchant_ref, status } = notification;
 
-    console.log("Webhook notification:", JSON.stringify(notification));
-
-    const {
-      reference, // Tripay reference (disimpan di midtrans_order_id)
-      merchant_ref, // = order_code kita
-      status, // PAID | UNPAID | EXPIRED | FAILED | REFUND
-    } = notification;
-
-    // Cari order berdasarkan order_code (merchant_ref)
     const orderResult = await query(
       "SELECT * FROM orders WHERE order_code = $1",
       [merchant_ref],
@@ -282,12 +261,10 @@ export const handleWebhook = async (
     const order = orderResult.rows[0];
 
     if (status === "PAID" && order.status === "PENDING") {
-      // PENDING → PAID (paid_at di-set otomatis oleh DB trigger)
       await query(`UPDATE orders SET status = 'PAID' WHERE id = $1`, [
         order.id,
       ]);
 
-      // Kirim email notifikasi (non-blocking)
       const updatedOrder = await query("SELECT * FROM orders WHERE id = $1", [
         order.id,
       ]);
@@ -306,7 +283,6 @@ export const handleWebhook = async (
         `✅ Order ${merchant_ref} PAID via Tripay (ref: ${reference})`,
       );
     } else if (["EXPIRED", "FAILED"].includes(status)) {
-      // Biarkan tetap PENDING — tidak ada cancel di sisi kita
       console.warn(
         `⚠️  Tripay transaction ${status} untuk order ${merchant_ref}`,
       );
@@ -327,9 +303,10 @@ export const checkPaymentStatus = async (
   res: Response<ApiResponse>,
 ): Promise<void> => {
   try {
+    // FIX #1: gunakan tripay_order_id
     const orderResult = await query(
       `SELECT id, order_code, status, payment_method, payment_bank,
-        payment_url, total_amount, paid_at, midtrans_order_id
+        payment_url, total_amount, paid_at, tripay_order_id
         FROM orders WHERE id::text = $1 OR order_code = $1`,
       [req.params.orderId],
     );
@@ -343,11 +320,10 @@ export const checkPaymentStatus = async (
 
     const order = orderResult.rows[0];
 
-    // Jika masih PENDING, cek status real-time ke Tripay
-    if (order.status === "PENDING" && order.midtrans_order_id) {
+    if (order.status === "PENDING" && order.tripay_order_id) {
       try {
         const tripayData = (await tripayRequest(
-          `/transaction/detail?reference=${order.midtrans_order_id}`,
+          `/transaction/detail?reference=${order.tripay_order_id}`,
           "GET",
         )) as { status: string };
 
@@ -358,7 +334,6 @@ export const checkPaymentStatus = async (
           order.status = "PAID";
         }
       } catch {
-        // Jika gagal cek ke Tripay, kembalikan status dari DB saja
         console.warn("Gagal cek status ke Tripay, gunakan status DB");
       }
     }

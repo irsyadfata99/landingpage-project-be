@@ -2,6 +2,7 @@ import express, { Application, Request, Response, NextFunction } from "express";
 import cors from "cors";
 import path from "path";
 import dotenv from "dotenv";
+import rateLimit from "express-rate-limit";
 
 dotenv.config();
 
@@ -25,6 +26,47 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"],
   }),
 );
+
+// ==========================================
+// RATE LIMITING
+// FIX #3 & #4: Proteksi endpoint login, checkout, dan payment charge
+// ==========================================
+
+// Login admin: max 10 request per 15 menit per IP
+export const loginRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Terlalu banyak percobaan login. Coba lagi dalam 15 menit.",
+  },
+});
+
+// Checkout: max 20 order per jam per IP
+export const checkoutRateLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Terlalu banyak request checkout. Coba lagi dalam 1 jam.",
+  },
+});
+
+// Payment charge: max 20 request per jam per IP
+export const chargeRateLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Terlalu banyak request pembayaran. Coba lagi dalam 1 jam.",
+  },
+});
 
 // ==========================================
 // BODY PARSER

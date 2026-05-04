@@ -4,6 +4,7 @@ import {
   trackOrder,
   confirmDelivery,
 } from "../controllers/order.controller";
+import { checkoutRateLimit } from "../app"; // FIX #4
 
 const router = Router();
 
@@ -11,8 +12,8 @@ const router = Router();
 // PUBLIC
 // ==========================================
 
-// POST /api/orders — buat order baru (checkout)
-router.post("/", createOrder);
+// POST /api/orders — FIX #4: rate limit checkout
+router.post("/", checkoutRateLimit, createOrder);
 
 // GET /api/orders/track/:orderCode — tracking order by order code
 router.get("/track/:orderCode", trackOrder);
