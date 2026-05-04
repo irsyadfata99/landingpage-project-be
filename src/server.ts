@@ -8,6 +8,8 @@ import {
   stopExpireOrdersJob,
 } from "./jobs/expire-orders.job";
 
+import { validateR2Config } from "./config/r2";
+
 const PORT = Number(process.env.PORT) || 5000;
 
 const startServer = async (): Promise<void> => {
@@ -16,6 +18,7 @@ const startServer = async (): Promise<void> => {
     await pool.query("SELECT 1");
     console.log("✅ Database connection verified");
 
+    validateR2Config();
     // Jalankan cron job expire orders
     startExpireOrdersJob();
 

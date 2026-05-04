@@ -2,11 +2,12 @@ import { Request, Response } from "express";
 import { query } from "../config/db";
 import { CreateProductBody, UpdateProductBody } from "../types/product.types";
 import { ApiResponse, PaginatedResponse } from "../types/response.types";
-import { deleteFile, getFileUrl } from "../middlewares/upload.middleware";
+import {
+  deleteFile,
+  getFileUrl,
+  uploadToR2,
+} from "../middlewares/upload.middleware";
 
-// ==========================================
-// GET /api/products (public)
-// ==========================================
 export const getPublicProducts = async (
   _req: Request,
   res: Response<ApiResponse>,
@@ -19,7 +20,6 @@ export const getPublicProducts = async (
        WHERE is_active = TRUE
        ORDER BY sort_order ASC, created_at ASC`,
     );
-
     res.json({ success: true, message: "OK", data: result.rows });
   } catch (err) {
     console.error("getPublicProducts error:", err);
@@ -27,9 +27,6 @@ export const getPublicProducts = async (
   }
 };
 
-// ==========================================
-// GET /api/admin/products (admin)
-// ==========================================
 export const getAllProducts = async (
   req: Request,
   res: Response<PaginatedResponse<object>>,
@@ -52,12 +49,7 @@ export const getAllProducts = async (
       success: true,
       message: "OK",
       data: result.rows,
-      pagination: {
-        total,
-        page,
-        limit,
-        total_pages: Math.ceil(total / limit),
-      },
+      pagination: { total, page, limit, total_pages: Math.ceil(total / limit) },
     });
   } catch (err) {
     console.error("getAllProducts error:", err);
@@ -70,9 +62,6 @@ export const getAllProducts = async (
   }
 };
 
-// ==========================================
-// GET /api/admin/products/:id (admin)
-// ==========================================
 export const getProductById = async (
   req: Request<{ id: string }>,
   res: Response<ApiResponse>,
@@ -81,14 +70,12 @@ export const getProductById = async (
     const result = await query("SELECT * FROM products WHERE id = $1", [
       req.params.id,
     ]);
-
     if (result.rowCount === 0) {
       res
         .status(404)
         .json({ success: false, message: "Produk tidak ditemukan" });
       return;
     }
-
     res.json({ success: true, message: "OK", data: result.rows[0] });
   } catch (err) {
     console.error("getProductById error:", err);
@@ -96,9 +83,6 @@ export const getProductById = async (
   }
 };
 
-// ==========================================
-// POST /api/admin/products (admin)
-// ==========================================
 export const createProduct = async (
   req: Request<object, object, CreateProductBody>,
   res: Response<ApiResponse>,
@@ -127,14 +111,17 @@ export const createProduct = async (
       return;
     }
 
-    const image_url = req.file ? getFileUrl(req.file.filename) : null;
+    let image_url = null;
+    if (req.file) {
+      const filename = await uploadToR2(req.file);
+      image_url = getFileUrl(filename);
+    }
 
     const result = await query(
       `INSERT INTO products
         (name, description, price, original_price, product_type, stock,
          image_url, download_url, download_expires_hours, is_active, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-       RETURNING *`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
       [
         name,
         description ?? null,
@@ -163,9 +150,6 @@ export const createProduct = async (
   }
 };
 
-// ==========================================
-// PUT /api/admin/products/:id (admin)
-// ==========================================
 export const updateProduct = async (
   req: Request<{ id: string }, object, UpdateProductBody>,
   res: Response<ApiResponse>,
@@ -195,20 +179,19 @@ export const updateProduct = async (
       sort_order,
     } = req.body;
 
-    // Jika ada upload gambar baru, hapus yang lama
     let image_url = old.image_url;
     if (req.file) {
-      if (old.image_url) deleteFile(old.image_url);
-      image_url = getFileUrl(req.file.filename);
+      if (old.image_url) await deleteFile(old.image_url);
+      const filename = await uploadToR2(req.file);
+      image_url = getFileUrl(filename);
     }
 
     const result = await query(
       `UPDATE products SET
-        name = $1, description = $2, price = $3, original_price = $4,
-        product_type = $5, stock = $6, image_url = $7, download_url = $8,
-        download_expires_hours = $9, is_active = $10, sort_order = $11
-       WHERE id = $12
-       RETURNING *`,
+        name=$1, description=$2, price=$3, original_price=$4,
+        product_type=$5, stock=$6, image_url=$7, download_url=$8,
+        download_expires_hours=$9, is_active=$10, sort_order=$11
+       WHERE id = $12 RETURNING *`,
       [
         name ?? old.name,
         description ?? old.description,
@@ -236,9 +219,6 @@ export const updateProduct = async (
   }
 };
 
-// ==========================================
-// DELETE /api/admin/products/:id (admin)
-// ==========================================
 export const deleteProduct = async (
   req: Request<{ id: string }>,
   res: Response<ApiResponse>,
@@ -248,17 +228,13 @@ export const deleteProduct = async (
       "DELETE FROM products WHERE id = $1 RETURNING image_url",
       [req.params.id],
     );
-
     if (result.rowCount === 0) {
       res
         .status(404)
         .json({ success: false, message: "Produk tidak ditemukan" });
       return;
     }
-
-    // Hapus gambar jika ada
-    if (result.rows[0].image_url) deleteFile(result.rows[0].image_url);
-
+    if (result.rows[0].image_url) await deleteFile(result.rows[0].image_url);
     res.json({ success: true, message: "Produk berhasil dihapus" });
   } catch (err) {
     console.error("deleteProduct error:", err);
@@ -266,9 +242,6 @@ export const deleteProduct = async (
   }
 };
 
-// ==========================================
-// PATCH /api/admin/products/:id/toggle (admin)
-// ==========================================
 export const toggleProduct = async (
   req: Request<{ id: string }>,
   res: Response<ApiResponse>,
@@ -279,14 +252,12 @@ export const toggleProduct = async (
        WHERE id = $1 RETURNING id, name, is_active`,
       [req.params.id],
     );
-
     if (result.rowCount === 0) {
       res
         .status(404)
         .json({ success: false, message: "Produk tidak ditemukan" });
       return;
     }
-
     const { name, is_active } = result.rows[0];
     res.json({
       success: true,

@@ -1,35 +1,7 @@
-import multer, { FileFilterCallback } from "multer";
-import path from "path";
-import fs from "fs";
+import multer from "multer";
+import { PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { r2Client, R2_BUCKET_NAME, R2_PUBLIC_URL } from "../config/r2";
 import { Request } from "express";
-
-// ==========================================
-// HELPER: pastikan folder ada
-// ==========================================
-const ensureDir = (dir: string): void => {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-};
-
-// ==========================================
-// STORAGE CONFIG
-// ==========================================
-const storage = multer.diskStorage({
-  destination: (_req: Request, _file: Express.Multer.File, cb) => {
-    const uploadDir = path.join(
-      process.cwd(),
-      process.env.UPLOAD_DIR || "uploads",
-    );
-    ensureDir(uploadDir);
-    cb(null, uploadDir);
-  },
-  filename: (_req: Request, file: Express.Multer.File, cb) => {
-    // Format: timestamp-originalname (spasi diganti -)
-    const uniqueName = `${Date.now()}-${file.originalname.replace(/\s+/g, "-")}`;
-    cb(null, uniqueName);
-  },
-});
 
 // ==========================================
 // FILE FILTER — hanya izinkan gambar
@@ -37,7 +9,7 @@ const storage = multer.diskStorage({
 const imageFilter = (
   _req: Request,
   file: Express.Multer.File,
-  cb: FileFilterCallback,
+  cb: multer.FileFilterCallback,
 ): void => {
   const allowedMimes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
   if (allowedMimes.includes(file.mimetype)) {
@@ -47,20 +19,20 @@ const imageFilter = (
   }
 };
 
-const MAX_SIZE = Number(process.env.MAX_FILE_SIZE) || 5 * 1024 * 1024; // 5MB
+const MAX_SIZE = Number(process.env.MAX_FILE_SIZE) || 5 * 1024 * 1024;
+
+// Gunakan memory storage — file di-upload langsung ke R2, tidak disimpan ke disk
+const storage = multer.memoryStorage();
 
 // ==========================================
 // UPLOAD INSTANCES
 // ==========================================
-
-// Upload 1 gambar (untuk hero, promo, contact, produk)
 export const uploadSingle = multer({
   storage,
   fileFilter: imageFilter,
   limits: { fileSize: MAX_SIZE },
 }).single("image");
 
-// Upload banyak gambar (maksimal 5)
 export const uploadMultiple = multer({
   storage,
   fileFilter: imageFilter,
@@ -68,23 +40,42 @@ export const uploadMultiple = multer({
 }).array("images", 5);
 
 // ==========================================
-// HELPER: hapus file lama saat update gambar
+// HELPER: upload file ke R2
+// Dipanggil dari controller setelah multer selesai
 // ==========================================
-export const deleteFile = (fileUrl: string): void => {
+export const uploadToR2 = async (
+  file: Express.Multer.File,
+): Promise<string> => {
+  const filename = `${Date.now()}-${file.originalname.replace(/\s+/g, "-")}`;
+
+  await r2Client.send(
+    new PutObjectCommand({
+      Bucket: R2_BUCKET_NAME,
+      Key: filename,
+      Body: file.buffer,
+      ContentType: file.mimetype,
+    }),
+  );
+
+  return filename;
+};
+
+// ==========================================
+// HELPER: hapus file dari R2
+// ==========================================
+export const deleteFile = async (fileUrl: string): Promise<void> => {
   try {
-    // Ambil nama file dari URL: /uploads/filename.jpg → filename.jpg
-    const filename = path.basename(fileUrl);
-    const filePath = path.join(
-      process.cwd(),
-      process.env.UPLOAD_DIR || "uploads",
-      filename,
+    // Ambil filename dari URL: https://pub-xxx.r2.dev/filename.jpg → filename.jpg
+    const filename = fileUrl.replace(`${R2_PUBLIC_URL}/`, "");
+
+    await r2Client.send(
+      new DeleteObjectCommand({
+        Bucket: R2_BUCKET_NAME,
+        Key: filename,
+      }),
     );
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
   } catch {
-    // Tidak perlu throw — gagal hapus file lama tidak kritis
-    console.warn(`⚠️  Gagal hapus file: ${fileUrl}`);
+    console.warn(`⚠️  Gagal hapus file dari R2: ${fileUrl}`);
   }
 };
 
@@ -92,6 +83,5 @@ export const deleteFile = (fileUrl: string): void => {
 // HELPER: buat URL publik dari nama file
 // ==========================================
 export const getFileUrl = (filename: string): string => {
-  const baseUrl = process.env.BASE_URL || "http://localhost:5000";
-  return `${baseUrl}/uploads/${filename}`;
+  return `${R2_PUBLIC_URL}/${filename}`;
 };

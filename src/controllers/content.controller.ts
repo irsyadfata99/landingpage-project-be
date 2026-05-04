@@ -13,10 +13,14 @@ import {
   UpdateContactPersonBody,
 } from "../types/content.types";
 import { ApiResponse } from "../types/response.types";
-import { deleteFile, getFileUrl } from "../middlewares/upload.middleware";
+import {
+  deleteFile,
+  getFileUrl,
+  uploadToR2,
+} from "../middlewares/upload.middleware";
 
 // ==========================================
-// GET /api/content (public — semua section sekaligus)
+// GET /api/content (public)
 // ==========================================
 export const getLandingPage = async (
   _req: Request,
@@ -61,7 +65,6 @@ export const getLandingPage = async (
 
 // ==========================================
 // SITE CONFIG
-// PUT /api/admin/content/site-config
 // ==========================================
 export const updateSiteConfig = async (
   req: Request<object, object, UpdateSiteConfigBody>,
@@ -77,13 +80,16 @@ export const updateSiteConfig = async (
     const files = req.files as
       | { [fieldname: string]: Express.Multer.File[] }
       | undefined;
+
     if (files?.logo?.[0]) {
-      if (old?.logo_url) deleteFile(old.logo_url);
-      logo_url = getFileUrl(files.logo[0].filename);
+      if (old?.logo_url) await deleteFile(old.logo_url);
+      const filename = await uploadToR2(files.logo[0]);
+      logo_url = getFileUrl(filename);
     }
     if (files?.favicon?.[0]) {
-      if (old?.favicon_url) deleteFile(old.favicon_url);
-      favicon_url = getFileUrl(files.favicon[0].filename);
+      if (old?.favicon_url) await deleteFile(old.favicon_url);
+      const filename = await uploadToR2(files.favicon[0]);
+      favicon_url = getFileUrl(filename);
     }
 
     const {
@@ -152,7 +158,6 @@ export const updateSiteConfig = async (
 
 // ==========================================
 // HERO SECTION
-// PUT /api/admin/content/hero
 // ==========================================
 export const updateHero = async (
   req: Request<object, object, UpdateHeroBody>,
@@ -165,8 +170,9 @@ export const updateHero = async (
 
     let image_url = old?.image_url;
     if (req.file) {
-      if (old?.image_url) deleteFile(old.image_url);
-      image_url = getFileUrl(req.file.filename);
+      if (old?.image_url) await deleteFile(old.image_url);
+      const filename = await uploadToR2(req.file);
+      image_url = getFileUrl(filename);
     }
 
     let result;
@@ -214,7 +220,6 @@ export const updateHero = async (
 
 // ==========================================
 // PROMO SECTION
-// PUT /api/admin/content/promo
 // ==========================================
 export const updatePromo = async (
   req: Request<object, object, UpdatePromoBody>,
@@ -228,8 +233,9 @@ export const updatePromo = async (
 
     let image_url = old?.image_url;
     if (req.file) {
-      if (old?.image_url) deleteFile(old.image_url);
-      image_url = getFileUrl(req.file.filename);
+      if (old?.image_url) await deleteFile(old.image_url);
+      const filename = await uploadToR2(req.file);
+      image_url = getFileUrl(filename);
     }
 
     let result;
@@ -280,10 +286,6 @@ export const updatePromo = async (
 
 // ==========================================
 // PRICING ITEMS
-// GET    /api/admin/content/pricing
-// POST   /api/admin/content/pricing
-// PUT    /api/admin/content/pricing/:id
-// DELETE /api/admin/content/pricing/:id
 // ==========================================
 export const getPricing = async (
   _req: Request,
@@ -317,10 +319,9 @@ export const createPricing = async (
     } = req.body;
 
     if (!name || price === undefined || !features) {
-      res.status(400).json({
-        success: false,
-        message: "name, price, features wajib diisi",
-      });
+      res
+        .status(400)
+        .json({ success: false, message: "name, price, features wajib diisi" });
       return;
     }
 
@@ -340,11 +341,13 @@ export const createPricing = async (
       ],
     );
 
-    res.status(201).json({
-      success: true,
-      message: "Pricing berhasil dibuat",
-      data: result.rows[0],
-    });
+    res
+      .status(201)
+      .json({
+        success: true,
+        message: "Pricing berhasil dibuat",
+        data: result.rows[0],
+      });
   } catch (err) {
     console.error("createPricing error:", err);
     res.status(500).json({ success: false, message: "Internal server error" });
@@ -430,10 +433,6 @@ export const deletePricing = async (
 
 // ==========================================
 // TESTIMONIALS
-// GET    /api/admin/content/testimonials
-// POST   /api/admin/content/testimonials
-// PUT    /api/admin/content/testimonials/:id
-// DELETE /api/admin/content/testimonials/:id
 // ==========================================
 export const getTestimonials = async (
   _req: Request,
@@ -465,14 +464,20 @@ export const createTestimonial = async (
     } = req.body;
 
     if (!customer_name || !content || rating === undefined) {
-      res.status(400).json({
-        success: false,
-        message: "customer_name, content, rating wajib diisi",
-      });
+      res
+        .status(400)
+        .json({
+          success: false,
+          message: "customer_name, content, rating wajib diisi",
+        });
       return;
     }
 
-    const photo_url = req.file ? getFileUrl(req.file.filename) : null;
+    let photo_url = null;
+    if (req.file) {
+      const filename = await uploadToR2(req.file);
+      photo_url = getFileUrl(filename);
+    }
 
     const result = await query(
       `INSERT INTO testimonials
@@ -489,11 +494,13 @@ export const createTestimonial = async (
       ],
     );
 
-    res.status(201).json({
-      success: true,
-      message: "Testimoni berhasil dibuat",
-      data: result.rows[0],
-    });
+    res
+      .status(201)
+      .json({
+        success: true,
+        message: "Testimoni berhasil dibuat",
+        data: result.rows[0],
+      });
   } catch (err) {
     console.error("createTestimonial error:", err);
     res.status(500).json({ success: false, message: "Internal server error" });
@@ -526,8 +533,9 @@ export const updateTestimonial = async (
 
     let photo_url = old.customer_photo_url;
     if (req.file) {
-      if (old.customer_photo_url) deleteFile(old.customer_photo_url);
-      photo_url = getFileUrl(req.file.filename);
+      if (old.customer_photo_url) await deleteFile(old.customer_photo_url);
+      const filename = await uploadToR2(req.file);
+      photo_url = getFileUrl(filename);
     }
 
     const result = await query(
@@ -574,7 +582,7 @@ export const deleteTestimonial = async (
       return;
     }
     if (result.rows[0].customer_photo_url)
-      deleteFile(result.rows[0].customer_photo_url);
+      await deleteFile(result.rows[0].customer_photo_url);
     res.json({ success: true, message: "Testimoni berhasil dihapus" });
   } catch (err) {
     console.error("deleteTestimonial error:", err);
@@ -584,10 +592,6 @@ export const deleteTestimonial = async (
 
 // ==========================================
 // FAQ
-// GET    /api/admin/content/faqs
-// POST   /api/admin/content/faqs
-// PUT    /api/admin/content/faqs/:id
-// DELETE /api/admin/content/faqs/:id
 // ==========================================
 export const getFAQs = async (
   _req: Request,
@@ -610,10 +614,9 @@ export const createFAQ = async (
     const { question, answer, is_active, sort_order } = req.body;
 
     if (!question || !answer) {
-      res.status(400).json({
-        success: false,
-        message: "question dan answer wajib diisi",
-      });
+      res
+        .status(400)
+        .json({ success: false, message: "question dan answer wajib diisi" });
       return;
     }
 
@@ -623,11 +626,13 @@ export const createFAQ = async (
       [question, answer, is_active ?? true, sort_order ?? 0],
     );
 
-    res.status(201).json({
-      success: true,
-      message: "FAQ berhasil dibuat",
-      data: result.rows[0],
-    });
+    res
+      .status(201)
+      .json({
+        success: true,
+        message: "FAQ berhasil dibuat",
+        data: result.rows[0],
+      });
   } catch (err) {
     console.error("createFAQ error:", err);
     res.status(500).json({ success: false, message: "Internal server error" });
@@ -693,7 +698,6 @@ export const deleteFAQ = async (
 
 // ==========================================
 // CONTACT PERSON
-// PUT /api/admin/content/contact
 // ==========================================
 export const updateContactPerson = async (
   req: Request<object, object, UpdateContactPersonBody>,
@@ -714,8 +718,9 @@ export const updateContactPerson = async (
 
     let photo_url = old?.photo_url;
     if (req.file) {
-      if (old?.photo_url) deleteFile(old.photo_url);
-      photo_url = getFileUrl(req.file.filename);
+      if (old?.photo_url) await deleteFile(old.photo_url);
+      const filename = await uploadToR2(req.file);
+      photo_url = getFileUrl(filename);
     }
 
     let result;

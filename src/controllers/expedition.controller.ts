@@ -5,11 +5,12 @@ import {
   UpdateExpeditionBody,
 } from "../types/content.types";
 import { ApiResponse } from "../types/response.types";
-import { deleteFile, getFileUrl } from "../middlewares/upload.middleware";
+import {
+  deleteFile,
+  getFileUrl,
+  uploadToR2,
+} from "../middlewares/upload.middleware";
 
-// ==========================================
-// GET /api/products/expeditions (public)
-// ==========================================
 export const getPublicExpeditions = async (
   _req: Request,
   res: Response<ApiResponse>,
@@ -26,9 +27,6 @@ export const getPublicExpeditions = async (
   }
 };
 
-// ==========================================
-// GET /api/admin/expeditions (admin)
-// ==========================================
 export const getAllExpeditions = async (
   _req: Request,
   res: Response<ApiResponse>,
@@ -44,9 +42,6 @@ export const getAllExpeditions = async (
   }
 };
 
-// ==========================================
-// POST /api/admin/expeditions (admin)
-// ==========================================
 export const createExpedition = async (
   req: Request<object, object, CreateExpeditionBody>,
   res: Response<ApiResponse>,
@@ -61,7 +56,11 @@ export const createExpedition = async (
       return;
     }
 
-    const logo_url = req.file ? getFileUrl(req.file.filename) : null;
+    let logo_url = null;
+    if (req.file) {
+      const filename = await uploadToR2(req.file);
+      logo_url = getFileUrl(filename);
+    }
 
     const result = await query(
       `INSERT INTO expeditions (name, logo_url, description, is_active, sort_order)
@@ -80,9 +79,6 @@ export const createExpedition = async (
   }
 };
 
-// ==========================================
-// PUT /api/admin/expeditions/:id (admin)
-// ==========================================
 export const updateExpedition = async (
   req: Request<{ id: string }, object, UpdateExpeditionBody>,
   res: Response<ApiResponse>,
@@ -103,8 +99,9 @@ export const updateExpedition = async (
 
     let logo_url = old.logo_url;
     if (req.file) {
-      if (old.logo_url) deleteFile(old.logo_url);
-      logo_url = getFileUrl(req.file.filename);
+      if (old.logo_url) await deleteFile(old.logo_url);
+      const filename = await uploadToR2(req.file);
+      logo_url = getFileUrl(filename);
     }
 
     const result = await query(
@@ -131,9 +128,6 @@ export const updateExpedition = async (
   }
 };
 
-// ==========================================
-// DELETE /api/admin/expeditions/:id (admin)
-// ==========================================
 export const deleteExpedition = async (
   req: Request<{ id: string }>,
   res: Response<ApiResponse>,
@@ -149,7 +143,7 @@ export const deleteExpedition = async (
         .json({ success: false, message: "Ekspedisi tidak ditemukan" });
       return;
     }
-    if (result.rows[0].logo_url) deleteFile(result.rows[0].logo_url);
+    if (result.rows[0].logo_url) await deleteFile(result.rows[0].logo_url);
     res.json({ success: true, message: "Ekspedisi berhasil dihapus" });
   } catch (err) {
     console.error("deleteExpedition error:", err);
@@ -157,9 +151,6 @@ export const deleteExpedition = async (
   }
 };
 
-// ==========================================
-// PATCH /api/admin/expeditions/:id/toggle (admin)
-// ==========================================
 export const toggleExpedition = async (
   req: Request<{ id: string }>,
   res: Response<ApiResponse>,
