@@ -9,3 +9,5 @@ Account ID: 492c494c11a9c4b333789fbb4d11a76b
 S3 API: https://492c494c11a9c4b333789fbb4d11a76b.r2.cloudflarestorage.com
 
 R2 Public URL: https://pub-7598ad30c70c48c0ace87b539053a169.r2.dev
+
+adding ignore
