@@ -26,6 +26,7 @@ export interface UpdateSiteConfigBody {
   font_url?: string;
   meta_title?: string;
   meta_description?: string;
+  og_image_url?: string;
 }
 
 // --- HERO ---

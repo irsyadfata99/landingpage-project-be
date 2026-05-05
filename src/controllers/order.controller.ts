@@ -365,8 +365,10 @@ export const trackOrder = async (
     const order = orderResult.rows[0];
 
     const itemsResult = await query(
-      `SELECT product_name, product_type, quantity, price, subtotal
-       FROM order_items WHERE order_id = $1`,
+      `SELECT
+    id, product_name, product_type, quantity, price, subtotal,
+    download_url, download_expires_at
+   FROM order_items WHERE order_id = $1`,
       [order.id],
     );
 

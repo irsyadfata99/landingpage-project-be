@@ -76,6 +76,7 @@ export const updateSiteConfig = async (
 
     let logo_url = old?.logo_url;
     let favicon_url = old?.favicon_url;
+    let og_image_url = old?.og_image_url;
 
     const files = req.files as
       | { [fieldname: string]: Express.Multer.File[] }
@@ -90,6 +91,11 @@ export const updateSiteConfig = async (
       if (old?.favicon_url) await deleteFile(old.favicon_url);
       const filename = await uploadToR2(files.favicon[0]);
       favicon_url = getFileUrl(filename);
+    }
+    if (files?.og_image?.[0]) {
+      if (old?.og_image_url) await deleteFile(old.og_image_url);
+      const filename = await uploadToR2(files.og_image[0]);
+      og_image_url = getFileUrl(filename);
     }
 
     const {
@@ -106,13 +112,14 @@ export const updateSiteConfig = async (
     if (!old) {
       result = await query(
         `INSERT INTO site_config
-          (brand_name, logo_url, favicon_url, primary_color, secondary_color,
+          (brand_name, logo_url, favicon_url, og_image_url, primary_color, secondary_color,
            font_family, font_url, meta_title, meta_description)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
         [
           brand_name,
           logo_url,
           favicon_url,
+          og_image_url,
           primary_color,
           secondary_color,
           font_family ?? "Inter",
@@ -125,15 +132,16 @@ export const updateSiteConfig = async (
     } else {
       result = await query(
         `UPDATE site_config SET
-          brand_name = $1, logo_url = $2, favicon_url = $3,
-          primary_color = $4, secondary_color = $5,
-          font_family = $6, font_url = $7,
-          meta_title = $8, meta_description = $9
-         WHERE id = $10 RETURNING *`,
+          brand_name = $1, logo_url = $2, favicon_url = $3, og_image_url = $4,
+          primary_color = $5, secondary_color = $6,
+          font_family = $7, font_url = $8,
+          meta_title = $9, meta_description = $10
+         WHERE id = $11 RETURNING *`,
         [
           brand_name ?? old.brand_name,
           logo_url,
           favicon_url,
+          og_image_url,
           primary_color ?? old.primary_color,
           secondary_color ?? old.secondary_color,
           font_family ?? old.font_family,
@@ -341,13 +349,11 @@ export const createPricing = async (
       ],
     );
 
-    res
-      .status(201)
-      .json({
-        success: true,
-        message: "Pricing berhasil dibuat",
-        data: result.rows[0],
-      });
+    res.status(201).json({
+      success: true,
+      message: "Pricing berhasil dibuat",
+      data: result.rows[0],
+    });
   } catch (err) {
     console.error("createPricing error:", err);
     res.status(500).json({ success: false, message: "Internal server error" });
@@ -464,12 +470,10 @@ export const createTestimonial = async (
     } = req.body;
 
     if (!customer_name || !content || rating === undefined) {
-      res
-        .status(400)
-        .json({
-          success: false,
-          message: "customer_name, content, rating wajib diisi",
-        });
+      res.status(400).json({
+        success: false,
+        message: "customer_name, content, rating wajib diisi",
+      });
       return;
     }
 
@@ -494,13 +498,11 @@ export const createTestimonial = async (
       ],
     );
 
-    res
-      .status(201)
-      .json({
-        success: true,
-        message: "Testimoni berhasil dibuat",
-        data: result.rows[0],
-      });
+    res.status(201).json({
+      success: true,
+      message: "Testimoni berhasil dibuat",
+      data: result.rows[0],
+    });
   } catch (err) {
     console.error("createTestimonial error:", err);
     res.status(500).json({ success: false, message: "Internal server error" });
@@ -626,13 +628,11 @@ export const createFAQ = async (
       [question, answer, is_active ?? true, sort_order ?? 0],
     );
 
-    res
-      .status(201)
-      .json({
-        success: true,
-        message: "FAQ berhasil dibuat",
-        data: result.rows[0],
-      });
+    res.status(201).json({
+      success: true,
+      message: "FAQ berhasil dibuat",
+      data: result.rows[0],
+    });
   } catch (err) {
     console.error("createFAQ error:", err);
     res.status(500).json({ success: false, message: "Internal server error" });

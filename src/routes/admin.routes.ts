@@ -67,10 +67,36 @@ import {
   loginSchema,
   changePasswordSchema,
 } from "../validators/auth.validator";
+import {
+  updateSiteConfigSchema,
+  updateHeroSchema,
+  updatePromoSchema,
+  createPricingSchema,
+  updatePricingSchema,
+  createTestimonialSchema,
+  updateTestimonialSchema,
+  createFAQSchema,
+  updateFAQSchema,
+  updateContactPersonSchema,
+} from "../validators/content.validator";
+import {
+  createExpeditionSchema,
+  updateExpeditionSchema,
+} from "../validators/expedition.validator";
+import {
+  createProductSchema,
+  updateProductSchema,
+} from "../validators/product.validator";
+import {
+  createBankAccountSchema,
+  updateBankAccountSchema,
+  updateWithdrawalSettingsSchema,
+  createWithdrawalSchema,
+  updateWithdrawalStatusSchema,
+} from "../validators/withdrawal.validator";
 import { loginRateLimit } from "../config/rate-limit";
 import multer from "multer";
 import { getAnalyticsSummary } from "../controllers/analytics.controller";
-
 import {
   getAllVouchers,
   getVoucherById,
@@ -79,8 +105,10 @@ import {
   deleteVoucher,
   toggleVoucher,
 } from "../controllers/voucher.controller";
-import { createVoucherSchema } from "../validators/voucher.validator";
-
+import {
+  createVoucherSchema,
+  updateVoucherSchema,
+} from "../validators/voucher.validator";
 import {
   getAllReviews,
   approveReview,
@@ -89,10 +117,10 @@ import {
 
 const router = Router();
 
-// uploadFields untuk site-config (logo + favicon) — pakai memory storage
 const uploadFields = multer({ storage: multer.memoryStorage() }).fields([
   { name: "logo", maxCount: 1 },
   { name: "favicon", maxCount: 1 },
+  { name: "og_image", maxCount: 1 },
 ]);
 
 // ==========================================
@@ -115,27 +143,61 @@ router.get("/analytics/summary", getAnalyticsSummary);
 // CONTENT — Landing Page
 // ==========================================
 router.get("/content", getLandingPage);
-router.put("/content/site-config", uploadFields, updateSiteConfig);
-router.put("/content/hero", uploadSingle, updateHero);
-router.put("/content/promo", uploadSingle, updatePromo);
-router.put("/content/contact", uploadSingle, updateContactPerson);
+router.put(
+  "/content/site-config",
+  uploadFields,
+  validate(updateSiteConfigSchema),
+  updateSiteConfig,
+);
+router.put(
+  "/content/hero",
+  uploadSingle,
+  validate(updateHeroSchema),
+  updateHero,
+);
+router.put(
+  "/content/promo",
+  uploadSingle,
+  validate(updatePromoSchema),
+  updatePromo,
+);
+router.put(
+  "/content/contact",
+  uploadSingle,
+  validate(updateContactPersonSchema),
+  updateContactPerson,
+);
 
 // Pricing
 router.get("/content/pricing", getPricing);
-router.post("/content/pricing", createPricing);
-router.put("/content/pricing/:id", updatePricing);
+router.post("/content/pricing", validate(createPricingSchema), createPricing);
+router.put(
+  "/content/pricing/:id",
+  validate(updatePricingSchema),
+  updatePricing,
+);
 router.delete("/content/pricing/:id", deletePricing);
 
 // Testimonial
 router.get("/content/testimonials", getTestimonials);
-router.post("/content/testimonials", uploadSingle, createTestimonial);
-router.put("/content/testimonials/:id", uploadSingle, updateTestimonial);
+router.post(
+  "/content/testimonials",
+  uploadSingle,
+  validate(createTestimonialSchema),
+  createTestimonial,
+);
+router.put(
+  "/content/testimonials/:id",
+  uploadSingle,
+  validate(updateTestimonialSchema),
+  updateTestimonial,
+);
 router.delete("/content/testimonials/:id", deleteTestimonial);
 
 // FAQ
 router.get("/content/faqs", getFAQs);
-router.post("/content/faqs", createFAQ);
-router.put("/content/faqs/:id", updateFAQ);
+router.post("/content/faqs", validate(createFAQSchema), createFAQ);
+router.put("/content/faqs/:id", validate(updateFAQSchema), updateFAQ);
 router.delete("/content/faqs/:id", deleteFAQ);
 
 // ==========================================
@@ -151,8 +213,18 @@ router.get("/email-templates/:type/vars", getTemplateVars);
 // ==========================================
 router.get("/products", getAllProducts);
 router.get("/products/:id", getProductById);
-router.post("/products", uploadSingle, createProduct);
-router.put("/products/:id", uploadSingle, updateProduct);
+router.post(
+  "/products",
+  uploadSingle,
+  validate(createProductSchema),
+  createProduct,
+);
+router.put(
+  "/products/:id",
+  uploadSingle,
+  validate(updateProductSchema),
+  updateProduct,
+);
 router.delete("/products/:id", deleteProduct);
 router.patch("/products/:id/toggle", toggleProduct);
 
@@ -160,8 +232,18 @@ router.patch("/products/:id/toggle", toggleProduct);
 // EXPEDITIONS
 // ==========================================
 router.get("/expeditions", getAllExpeditions);
-router.post("/expeditions", uploadSingle, createExpedition);
-router.put("/expeditions/:id", uploadSingle, updateExpedition);
+router.post(
+  "/expeditions",
+  uploadSingle,
+  validate(createExpeditionSchema),
+  createExpedition,
+);
+router.put(
+  "/expeditions/:id",
+  uploadSingle,
+  validate(updateExpeditionSchema),
+  updateExpedition,
+);
 router.delete("/expeditions/:id", deleteExpedition);
 router.patch("/expeditions/:id/toggle", toggleExpedition);
 
@@ -179,8 +261,16 @@ router.patch("/orders/:id/delivered", markAsDelivered);
 // BANK ACCOUNTS
 // ==========================================
 router.get("/bank-accounts", getAllBankAccounts);
-router.post("/bank-accounts", createBankAccount);
-router.put("/bank-accounts/:id", updateBankAccount);
+router.post(
+  "/bank-accounts",
+  validate(createBankAccountSchema),
+  createBankAccount,
+);
+router.put(
+  "/bank-accounts/:id",
+  validate(updateBankAccountSchema),
+  updateBankAccount,
+);
 router.delete("/bank-accounts/:id", deleteBankAccount);
 router.patch("/bank-accounts/:id/activate", activateBankAccount);
 
@@ -188,19 +278,36 @@ router.patch("/bank-accounts/:id/activate", activateBankAccount);
 // WITHDRAWAL
 // ==========================================
 router.get("/withdrawal/settings", getWithdrawalSettings);
-router.put("/withdrawal/settings", updateWithdrawalSettings);
+router.put(
+  "/withdrawal/settings",
+  validate(updateWithdrawalSettingsSchema),
+  updateWithdrawalSettings,
+);
 router.get("/withdrawal/history", getWithdrawalHistory);
-router.post("/withdrawal/request", requestWithdrawal);
-router.patch("/withdrawal/:id/status", updateWithdrawalStatus);
+router.post(
+  "/withdrawal/request",
+  validate(createWithdrawalSchema),
+  requestWithdrawal,
+);
+router.patch(
+  "/withdrawal/:id/status",
+  validate(updateWithdrawalStatusSchema),
+  updateWithdrawalStatus,
+);
 
+// ==========================================
 // VOUCHERS
+// ==========================================
 router.get("/vouchers", getAllVouchers);
 router.get("/vouchers/:id", getVoucherById);
 router.post("/vouchers", validate(createVoucherSchema), createVoucher);
-router.put("/vouchers/:id", updateVoucher);
+router.put("/vouchers/:id", validate(updateVoucherSchema), updateVoucher);
 router.delete("/vouchers/:id", deleteVoucher);
 router.patch("/vouchers/:id/toggle", toggleVoucher);
 
+// ==========================================
+// REVIEWS
+// ==========================================
 router.get("/reviews", getAllReviews);
 router.patch("/reviews/:id/approve", approveReview);
 router.delete("/reviews/:id", deleteReview);

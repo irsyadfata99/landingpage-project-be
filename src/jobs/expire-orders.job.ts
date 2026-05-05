@@ -1,4 +1,4 @@
-import { query } from "../config/db";
+import { query, transaction } from "../config/db";
 
 // ==========================================
 // EXPIRE ORDERS JOB
@@ -16,21 +16,42 @@ let jobTimer: NodeJS.Timeout | null = null;
 // ==========================================
 export const runExpireOrders = async (): Promise<void> => {
   try {
-    const result = await query(
-      `UPDATE orders
-       SET status = 'EXPIRED'
+    // 1. Ambil order PENDING yang sudah expired beserta items-nya
+    const expiredOrders = await query(
+      `SELECT id, order_code FROM orders
        WHERE status = 'PENDING'
-         AND created_at < NOW() - ($1 * INTERVAL '1 hour')
-       RETURNING order_code`,
+         AND created_at < NOW() - ($1 * INTERVAL '1 hour')`,
       [EXPIRE_AFTER_HOURS],
     );
 
-    if (result.rowCount && result.rowCount > 0) {
-      const codes = result.rows.map((r) => r.order_code).join(", ");
-      console.log(
-        `⏰ Expire orders job: ${result.rowCount} order di-expire → [${codes}]`,
-      );
+    if (!expiredOrders.rowCount || expiredOrders.rowCount === 0) return;
+
+    for (const order of expiredOrders.rows) {
+      await transaction(async (client) => {
+        // 2. Update status ke EXPIRED
+        await client.query(
+          `UPDATE orders SET status = 'EXPIRED' WHERE id = $1`,
+          [order.id],
+        );
+
+        // 3. Restore stok — hanya untuk produk yang stok-nya tidak null (bukan unlimited)
+        await client.query(
+          `UPDATE products p
+           SET stock = stock + oi.quantity
+           FROM order_items oi
+           WHERE oi.order_id = $1
+             AND oi.product_id = p.id
+             AND p.stock IS NOT NULL`,
+          [order.id],
+        );
+      });
+
+      console.log(`⏰ Order ${order.order_code} di-expire, stok di-restore`);
     }
+
+    console.log(
+      `⏰ Expire orders job: ${expiredOrders.rowCount} order di-expire`,
+    );
   } catch (err) {
     console.error("❌ Expire orders job error:", err);
   }
