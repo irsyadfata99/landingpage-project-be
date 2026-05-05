@@ -23,8 +23,14 @@ export const calculateDiscount = (
 };
 
 // ==========================================
-// HELPER: validasi voucher (reusable)
-// Dipakai di validate endpoint & createOrder
+// HELPER: validasi voucher (reusable, tanpa lock)
+// Dipakai hanya untuk endpoint preview/validate-voucher.
+// createOrder menggunakan SELECT FOR UPDATE secara mandiri
+// di dalam transaksinya sendiri — jangan gabungkan.
+//
+// FIX #5: fungsi ini TIDAK dipakai di dalam transaksi createOrder.
+// Endpoint validate-voucher hanya untuk preview di UI (tidak atomik),
+// sehingga tidak perlu lock. Lock tetap ada di createOrder.
 // ==========================================
 export const validateVoucherCode = async (
   code: string,
@@ -70,7 +76,6 @@ export const validateVoucherCode = async (
     };
   }
 
-  // Cek apakah customer sudah pernah pakai voucher ini
   const usageResult = await query(
     "SELECT id FROM voucher_uses WHERE voucher_id = $1 AND customer_email = $2",
     [voucher.id, customerEmail.toLowerCase()],
@@ -104,6 +109,9 @@ export const validateVoucherCode = async (
 
 // ==========================================
 // POST /api/orders/validate-voucher (public)
+// Preview diskon sebelum checkout.
+// Hasilnya TIDAK dijamin atomik — checkout tetap
+// memvalidasi ulang dengan lock di dalam transaksi.
 // ==========================================
 export const validateVoucher = async (
   req: Request<object, object, ValidateVoucherBody>,
@@ -136,6 +144,7 @@ export const validateVoucher = async (
 
 // ==========================================
 // GET /api/admin/vouchers (admin)
+// FIX #3: idx dihitung eksplisit — push dulu, lalu gunakan params.length
 // ==========================================
 export const getAllVouchers = async (
   req: Request<object, object, object, VoucherFilter>,
@@ -148,11 +157,10 @@ export const getAllVouchers = async (
 
     const conditions: string[] = [];
     const params: unknown[] = [];
-    let idx = 1;
 
     if (req.query.is_active !== undefined) {
-      conditions.push(`is_active = $${idx++}`);
       params.push(req.query.is_active);
+      conditions.push(`is_active = $${params.length}`);
     }
 
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -163,9 +171,13 @@ export const getAllVouchers = async (
     );
     const total = Number(countResult.rows[0].count);
 
+    const dataParams = [...params, limit, offset];
+    const limitIdx = dataParams.length - 1;
+    const offsetIdx = dataParams.length;
+
     const dataResult = await query(
-      `SELECT * FROM vouchers ${where} ORDER BY created_at DESC LIMIT $${idx++} OFFSET $${idx}`,
-      [...params, limit, offset],
+      `SELECT * FROM vouchers ${where} ORDER BY created_at DESC LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+      dataParams,
     );
 
     res.json({
@@ -227,7 +239,6 @@ export const createVoucher = async (
       is_active,
     } = req.body;
 
-    // Cek duplikat kode
     const existing = await query("SELECT id FROM vouchers WHERE code = $1", [
       code.toUpperCase(),
     ]);
@@ -292,7 +303,6 @@ export const updateVoucher = async (
       is_active,
     } = req.body;
 
-    // Cek duplikat kode jika kode diubah
     if (code && code.toUpperCase() !== old.code) {
       const dupCheck = await query(
         "SELECT id FROM vouchers WHERE code = $1 AND id != $2",

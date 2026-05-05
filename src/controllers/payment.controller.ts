@@ -46,6 +46,28 @@ const tripayRequest = async (
 };
 
 // ==========================================
+// HELPER: proses order menjadi PAID
+// Dipakai bersama oleh webhook dan checkPaymentStatus
+// agar logika konsisten (update DB + kirim email).
+// ==========================================
+const markOrderAsPaid = async (orderId: string): Promise<void> => {
+  await query(`UPDATE orders SET status = 'PAID' WHERE id = $1`, [orderId]);
+
+  const updatedOrder = await query("SELECT * FROM orders WHERE id = $1", [
+    orderId,
+  ]);
+  const itemsResult = await query(
+    "SELECT * FROM order_items WHERE order_id = $1",
+    [orderId],
+  );
+
+  sendPaymentSuccessEmail({
+    ...updatedOrder.rows[0],
+    items: itemsResult.rows,
+  }).catch((err) => console.error("Gagal kirim email payment success:", err));
+};
+
+// ==========================================
 // POST /api/payment/charge (public)
 // ==========================================
 export const chargePayment = async (
@@ -217,11 +239,6 @@ export const chargePayment = async (
 
 // ==========================================
 // POST /api/payment/webhook (Tripay callback)
-// Status yang ditangani:
-//   PAID    → update order ke PAID + kirim email payment success
-//   REFUND  → update order ke REFUNDED + kirim email notifikasi ke admin
-//   EXPIRED → log saja (order sudah di-expire oleh cron job)
-//   FAILED  → log saja
 // ==========================================
 export const handleWebhook = async (
   req: Request,
@@ -267,36 +284,12 @@ export const handleWebhook = async (
 
     const order = orderResult.rows[0];
 
-    // ==========================================
-    // PAID
-    // ==========================================
     if (status === "PAID" && order.status === "PENDING") {
-      await query(`UPDATE orders SET status = 'PAID' WHERE id = $1`, [
-        order.id,
-      ]);
-
-      const updatedOrder = await query("SELECT * FROM orders WHERE id = $1", [
-        order.id,
-      ]);
-      const itemsResult = await query(
-        "SELECT * FROM order_items WHERE order_id = $1",
-        [order.id],
-      );
-      sendPaymentSuccessEmail({
-        ...updatedOrder.rows[0],
-        items: itemsResult.rows,
-      }).catch((err) =>
-        console.error("Gagal kirim email payment success:", err),
-      );
-
+      // Gunakan helper bersama → konsisten dengan checkPaymentStatus
+      await markOrderAsPaid(order.id);
       console.log(
         `✅ Order ${merchant_ref} PAID via Tripay (ref: ${reference})`,
       );
-
-      // ==========================================
-      // REFUND
-      // Order yang bisa di-refund: PAID atau PROCESSING
-      // ==========================================
     } else if (status === "REFUND") {
       const refundableStatuses = ["PAID", "PROCESSING"];
 
@@ -309,7 +302,6 @@ export const handleWebhook = async (
           `⚠️  Order ${merchant_ref} REFUNDED via Tripay (ref: ${reference})`,
         );
 
-        // Kirim notifikasi ke admin (non-blocking)
         sendRefundNotificationEmail(
           {
             order_code: order.order_code,
@@ -325,15 +317,10 @@ export const handleWebhook = async (
           console.error("Gagal kirim email notifikasi refund:", err),
         );
       } else {
-        // Order sudah di status lain (misal SHIPPED/DELIVERED) — log saja
         console.warn(
           `⚠️  Tripay REFUND untuk order ${merchant_ref} diabaikan — status saat ini: ${order.status}`,
         );
       }
-
-      // ==========================================
-      // EXPIRED / FAILED
-      // ==========================================
     } else if (["EXPIRED", "FAILED"].includes(status)) {
       console.warn(
         `⚠️  Tripay transaction ${status} untuk order ${merchant_ref} (ref: ${reference})`,
@@ -349,6 +336,8 @@ export const handleWebhook = async (
 
 // ==========================================
 // GET /api/payment/status/:orderId (public)
+// FIX #1: jika Tripay konfirmasi PAID, jalankan markOrderAsPaid
+// agar email payment_success tetap terkirim (konsisten dengan webhook).
 // ==========================================
 export const checkPaymentStatus = async (
   req: Request<{ orderId: string }>,
@@ -379,9 +368,8 @@ export const checkPaymentStatus = async (
         )) as { status: string };
 
         if (tripayData.status === "PAID") {
-          await query(`UPDATE orders SET status = 'PAID' WHERE id = $1`, [
-            order.id,
-          ]);
+          // Gunakan helper bersama → email payment_success otomatis terkirim
+          await markOrderAsPaid(order.id);
           order.status = "PAID";
         }
       } catch {

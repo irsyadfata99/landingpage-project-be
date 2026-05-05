@@ -9,18 +9,23 @@ import {
 import { generateDownloadUrl } from "./download.service";
 
 // ==========================================
-// TRANSPORTER
+// TRANSPORTER — singleton, dibuat sekali saja
 // ==========================================
-const createTransporter = (): Transporter => {
-  return nodemailer.createTransport({
-    host: process.env.EMAIL_HOST,
-    port: Number(process.env.EMAIL_PORT) || 587,
-    secure: process.env.EMAIL_SECURE === "true",
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-  });
+let _transporter: Transporter | null = null;
+
+const getTransporter = (): Transporter => {
+  if (!_transporter) {
+    _transporter = nodemailer.createTransport({
+      host: process.env.EMAIL_HOST,
+      port: Number(process.env.EMAIL_PORT) || 587,
+      secure: process.env.EMAIL_SECURE === "true",
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+  }
+  return _transporter;
 };
 
 const FROM = `"${process.env.EMAIL_FROM_NAME || "Toko Anda"}" <${process.env.EMAIL_USER}>`;
@@ -147,7 +152,6 @@ const renderDownloadLinks = (
       ${digitalItems
         .map((i) => {
           const expiresAt = new Date(i.download_expires_at!);
-          // Generate signed URL — token berlaku sampai download_expires_at
           const signedUrl = generateDownloadUrl(i.id, orderId, expiresAt);
           return `
             <p style="margin:4px 0;font-size:13px;">
@@ -177,7 +181,6 @@ const renderShippingAddress = (order: OrderWithItems): string =>
 
 // ==========================================
 // EMAIL 1: Payment Sukses
-// Signed URL di-generate di sini, saat email dikirim
 // ==========================================
 export const sendPaymentSuccessEmail = async (
   order: OrderWithItems,
@@ -194,7 +197,6 @@ export const sendPaymentSuccessEmail = async (
         ? `Transfer Bank (${order.payment_bank?.toUpperCase() ?? "-"})`
         : "QRIS",
     items: renderItemsTable(order.items),
-    // Signed URL di-generate di sini dengan order.id
     download_links: renderDownloadLinks(order.items, order.id),
   };
 
@@ -207,8 +209,7 @@ export const sendPaymentSuccessEmail = async (
     data as unknown as Record<string, string>,
   );
 
-  const transporter = createTransporter();
-  await transporter.sendMail({
+  await getTransporter().sendMail({
     from: FROM,
     to: order.customer_email,
     subject,
@@ -241,8 +242,7 @@ export const sendShippingEmail = async (
   const subject = renderTemplate(template.subject, data);
   const bodyHtml = renderTemplate(template.body_html, data);
 
-  const transporter = createTransporter();
-  await transporter.sendMail({
+  await getTransporter().sendMail({
     from: FROM,
     to: order.customer_email,
     subject,
@@ -255,7 +255,6 @@ export const sendShippingEmail = async (
 
 // ==========================================
 // EMAIL 3: Notifikasi REFUND ke Admin
-// Dikirim ke EMAIL_USER saat Tripay webhook REFUND diterima
 // ==========================================
 export const sendRefundNotificationEmail = async (
   order: Pick<
@@ -278,14 +277,12 @@ export const sendRefundNotificationEmail = async (
     return;
   }
 
-  const transporter = createTransporter();
-
   const paymentMethod =
     order.payment_method === "bank_transfer"
       ? `Transfer Bank (${order.payment_bank?.toUpperCase() ?? "-"})`
       : "QRIS";
 
-  await transporter.sendMail({
+  await getTransporter().sendMail({
     from: FROM,
     to: adminEmail,
     subject: `⚠️ REFUND Diterima - ${order.order_code}`,
@@ -366,8 +363,7 @@ export const sendDeliveryConfirmEmail = async (
     data as unknown as Record<string, string>,
   );
 
-  const transporter = createTransporter();
-  await transporter.sendMail({
+  await getTransporter().sendMail({
     from: FROM,
     to: order.customer_email,
     subject,

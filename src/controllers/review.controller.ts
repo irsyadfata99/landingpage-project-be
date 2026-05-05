@@ -5,7 +5,6 @@ import { ApiResponse, PaginatedResponse } from "../types/response.types";
 
 // ==========================================
 // POST /api/reviews (public)
-// Hanya customer dengan order status DONE
 // ==========================================
 export const createReview = async (
   req: Request<object, object, CreateReviewBody>,
@@ -14,7 +13,6 @@ export const createReview = async (
   try {
     const { product_id, order_id, customer_email, rating, comment } = req.body;
 
-    // 1. Validasi order: harus DONE dan milik customer tersebut
     const orderResult = await query(
       `SELECT id, status, customer_email
        FROM orders
@@ -39,7 +37,6 @@ export const createReview = async (
       return;
     }
 
-    // 2. Validasi produk ada di order tersebut
     const itemResult = await query(
       `SELECT id FROM order_items
        WHERE order_id = $1 AND product_id = $2`,
@@ -54,7 +51,6 @@ export const createReview = async (
       return;
     }
 
-    // 3. Cek apakah sudah pernah review produk ini di order ini
     const existingReview = await query(
       `SELECT id FROM product_reviews
        WHERE product_id = $1 AND order_id = $2 AND customer_email = $3`,
@@ -69,13 +65,11 @@ export const createReview = async (
       return;
     }
 
-    // 4. Ambil customer_name dari order
     const customerName = await query(
       "SELECT customer_name FROM orders WHERE id = $1",
       [order_id],
     );
 
-    // 5. Simpan review
     const result = await query(
       `INSERT INTO product_reviews
         (product_id, order_id, customer_name, customer_email, rating, comment, is_approved)
@@ -103,7 +97,6 @@ export const createReview = async (
 
 // ==========================================
 // GET /api/reviews/:productId (public)
-// Hanya review yang sudah diapprove
 // ==========================================
 export const getProductReviews = async (
   req: Request<{ productId: string }>,
@@ -119,7 +112,6 @@ export const getProductReviews = async (
       [req.params.productId],
     );
 
-    // Hitung rata-rata rating
     const statsResult = await query(
       `SELECT
         COUNT(*) AS total_reviews,
@@ -160,7 +152,7 @@ export const getProductReviews = async (
 
 // ==========================================
 // GET /api/admin/reviews (admin)
-// Semua review + filter
+// FIX #3: idx dihitung eksplisit — push dulu, lalu gunakan params.length
 // ==========================================
 export const getAllReviews = async (
   req: Request<object, object, object, ReviewFilter>,
@@ -173,15 +165,14 @@ export const getAllReviews = async (
 
     const conditions: string[] = [];
     const params: unknown[] = [];
-    let idx = 1;
 
     if (req.query.product_id) {
-      conditions.push(`pr.product_id = $${idx++}`);
       params.push(req.query.product_id);
+      conditions.push(`pr.product_id = $${params.length}`);
     }
     if (req.query.is_approved !== undefined) {
-      conditions.push(`pr.is_approved = $${idx++}`);
       params.push(req.query.is_approved);
+      conditions.push(`pr.is_approved = $${params.length}`);
     }
 
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -192,6 +183,10 @@ export const getAllReviews = async (
     );
     const total = Number(countResult.rows[0].count);
 
+    const dataParams = [...params, limit, offset];
+    const limitIdx = dataParams.length - 1;
+    const offsetIdx = dataParams.length;
+
     const dataResult = await query(
       `SELECT
         pr.*,
@@ -200,8 +195,8 @@ export const getAllReviews = async (
        LEFT JOIN products p ON p.id = pr.product_id
        ${where}
        ORDER BY pr.created_at DESC
-       LIMIT $${idx++} OFFSET $${idx}`,
-      [...params, limit, offset],
+       LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+      dataParams,
     );
 
     res.json({

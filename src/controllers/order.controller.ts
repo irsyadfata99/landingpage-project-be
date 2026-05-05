@@ -13,7 +13,10 @@ import {
   sendShippingEmail,
   sendDeliveryConfirmEmail,
 } from "../services/email.service";
-import { verifyDownloadToken } from "../services/download.service";
+import {
+  verifyDownloadToken,
+  generateDownloadUrl,
+} from "../services/download.service";
 
 // ==========================================
 // HELPER: generate order code
@@ -96,9 +99,7 @@ export const createOrder = async (
     }
 
     const order = await transaction(async (client) => {
-      // ==========================================
       // 1. Ambil data produk dan validasi
-      // ==========================================
       const productIds = items.map((i) => i.product_id);
       const productsResult = await client.query(
         `SELECT * FROM products WHERE id = ANY($1::uuid[]) AND is_active = TRUE`,
@@ -109,9 +110,7 @@ export const createOrder = async (
         throw new Error("Beberapa produk tidak ditemukan atau tidak aktif");
       }
 
-      // ==========================================
       // 2. Hitung subtotal dan validasi stok
-      // ==========================================
       let subtotalAmount = 0;
       const orderItems = items.map((item) => {
         const product = productsResult.rows.find(
@@ -129,9 +128,7 @@ export const createOrder = async (
         return { product, quantity: item.quantity, subtotal };
       });
 
-      // ==========================================
       // 3. Validasi ekspedisi jika ada produk fisik
-      // ==========================================
       const hasPhysical = orderItems.some(
         (i) =>
           i.product.product_type === "PHYSICAL" ||
@@ -152,23 +149,14 @@ export const createOrder = async (
         expeditionName = expResult.rows[0].name;
       }
 
-      // ==========================================
-      // 4. Validasi & hitung diskon voucher
-      //    Gunakan SELECT FOR UPDATE untuk mencegah race condition:
-      //    dua request bersamaan dengan voucher yang sama
-      //    tidak akan lolos validasi secara bersamaan
-      // ==========================================
+      // 4. Validasi & hitung diskon voucher dengan SELECT FOR UPDATE
       let discountAmount = 0;
       let appliedVoucherCode: string | null = null;
       let voucherId: string | null = null;
 
       if (voucher_code) {
-        // LOCK baris voucher agar tidak ada proses lain
-        // yang bisa baca/update voucher ini sampai transaksi selesai
         const voucherResult = await client.query(
-          `SELECT * FROM vouchers
-           WHERE code = $1
-           FOR UPDATE`,
+          `SELECT * FROM vouchers WHERE code = $1 FOR UPDATE`,
           [voucher_code.toUpperCase()],
         );
 
@@ -178,34 +166,28 @@ export const createOrder = async (
 
         const voucher = voucherResult.rows[0];
 
-        if (!voucher.is_active) {
-          throw new Error("Voucher tidak aktif");
-        }
-
-        if (new Date() > new Date(voucher.expired_at)) {
+        if (!voucher.is_active) throw new Error("Voucher tidak aktif");
+        if (new Date() > new Date(voucher.expired_at))
           throw new Error("Voucher sudah kadaluarsa");
-        }
-
-        if (voucher.used_count >= voucher.max_uses) {
-          throw new Error("Voucher sudah mencapai batas pemakaian");
-        }
-
         if (subtotalAmount < voucher.minimum_order) {
           throw new Error(
             `Minimum order untuk voucher ini adalah Rp ${Number(voucher.minimum_order).toLocaleString("id-ID")}`,
           );
         }
 
-        // Cek apakah customer sudah pernah pakai voucher ini
+        // Cek pemakaian per customer DULU sebelum cek global limit
+        // agar pesan error lebih akurat saat customer pakai ulang voucher
+        // yang kebetulan juga sudah habis quota globalnya
         const usageResult = await client.query(
-          `SELECT id FROM voucher_uses
-           WHERE voucher_id = $1 AND customer_email = $2`,
+          `SELECT id FROM voucher_uses WHERE voucher_id = $1 AND customer_email = $2`,
           [voucher.id, customer_email.toLowerCase()],
         );
-
         if (usageResult.rowCount! > 0) {
           throw new Error("Anda sudah pernah menggunakan voucher ini");
         }
+
+        if (voucher.used_count >= voucher.max_uses)
+          throw new Error("Voucher sudah mencapai batas pemakaian");
 
         discountAmount = calculateDiscount(
           voucher.type,
@@ -215,7 +197,6 @@ export const createOrder = async (
         appliedVoucherCode = voucher.code;
         voucherId = voucher.id;
 
-        // Increment used_count di dalam transaksi yang sama
         await client.query(
           "UPDATE vouchers SET used_count = used_count + 1 WHERE id = $1",
           [voucher.id],
@@ -224,9 +205,7 @@ export const createOrder = async (
 
       const finalAmount = Math.max(0, subtotalAmount - discountAmount);
 
-      // ==========================================
       // 5. Buat order
-      // ==========================================
       const orderCode = generateOrderCode();
       const orderResult = await client.query(
         `INSERT INTO orders (
@@ -260,9 +239,7 @@ export const createOrder = async (
 
       const newOrder = orderResult.rows[0];
 
-      // ==========================================
       // 6. Insert order items + kurangi stok
-      // ==========================================
       for (const item of orderItems) {
         const { product, quantity, subtotal } = item;
 
@@ -303,11 +280,7 @@ export const createOrder = async (
         }
       }
 
-      // ==========================================
-      // 7. Catat pemakaian voucher di dalam transaksi
-      //    Karena voucher sudah di-lock (FOR UPDATE),
-      //    insert ini dijamin tidak duplikat
-      // ==========================================
+      // 7. Catat pemakaian voucher
       if (voucherId && appliedVoucherCode) {
         await client.query(
           `INSERT INTO voucher_uses (voucher_id, order_id, customer_email)
@@ -325,8 +298,9 @@ export const createOrder = async (
       data: {
         order_id: order.id,
         order_code: order.order_code,
-        total_amount: order.total_amount,
-        discount_amount: order.discount_amount,
+        // PostgreSQL BIGINT dikembalikan sebagai string — cast eksplisit
+        total_amount: Number(order.total_amount),
+        discount_amount: Number(order.discount_amount),
         voucher_code: order.voucher_code,
       },
     });
@@ -340,6 +314,9 @@ export const createOrder = async (
 
 // ==========================================
 // GET /api/orders/track/:orderCode (public)
+// FIX #2: download_url TIDAK dikembalikan langsung.
+// Untuk produk digital, dikembalikan signed download URL
+// yang expire sesuai download_expires_at.
 // ==========================================
 export const trackOrder = async (
   req: Request<{ orderCode: string }>,
@@ -364,18 +341,53 @@ export const trackOrder = async (
 
     const order = orderResult.rows[0];
 
+    // Ambil items — sengaja tidak select download_url mentah
     const itemsResult = await query(
       `SELECT
-    id, product_name, product_type, quantity, price, subtotal,
-    download_url, download_expires_at
-   FROM order_items WHERE order_id = $1`,
+         id, product_name, product_type, quantity, price, subtotal,
+         download_expires_at
+       FROM order_items WHERE order_id = $1`,
       [order.id],
     );
+
+    // Untuk produk digital yang sudah dibayar: generate signed URL
+    const paidStatuses = ["PAID", "PROCESSING", "SHIPPED", "DELIVERED", "DONE"];
+    const isPaid = paidStatuses.includes(order.status);
+
+    const items = itemsResult.rows.map((item) => {
+      const isDigital =
+        item.product_type === "DIGITAL" || item.product_type === "BOTH";
+
+      let signed_download_url: string | null = null;
+
+      if (isPaid && isDigital && item.download_expires_at) {
+        const expiresAt = new Date(item.download_expires_at);
+        if (new Date() <= expiresAt) {
+          // Hanya generate jika belum expired
+          signed_download_url = generateDownloadUrl(
+            item.id,
+            order.id,
+            expiresAt,
+          );
+        }
+      }
+
+      return {
+        id: item.id,
+        product_name: item.product_name,
+        product_type: item.product_type,
+        quantity: item.quantity,
+        price: item.price,
+        subtotal: item.subtotal,
+        download_expires_at: item.download_expires_at,
+        signed_download_url, // null jika bukan digital / belum bayar / expired
+      };
+    });
 
     res.json({
       success: true,
       message: "OK",
-      data: { ...order, items: itemsResult.rows },
+      data: { ...order, items },
     });
   } catch (err) {
     console.error("trackOrder error:", err);
@@ -457,6 +469,8 @@ export const downloadFile = async (
 
 // ==========================================
 // GET /api/admin/orders (admin)
+// FIX #3: idx untuk LIMIT dan OFFSET dihitung eksplisit
+// agar tidak bergeser saat ada/tidak ada filter aktif.
 // ==========================================
 export const getAllOrders = async (
   req: Request<object, object, object, OrderFilter>,
@@ -470,39 +484,43 @@ export const getAllOrders = async (
 
     const conditions: string[] = [];
     const params: unknown[] = [];
-    let idx = 1;
 
     if (status) {
-      conditions.push(`status = $${idx++}`);
       params.push(status);
+      conditions.push(`status = $${params.length}`);
     }
     if (search) {
-      conditions.push(
-        `(order_code ILIKE $${idx} OR customer_name ILIKE $${idx} OR customer_email ILIKE $${idx})`,
-      );
       params.push(`%${search}%`);
-      idx++;
+      conditions.push(
+        `(order_code ILIKE $${params.length} OR customer_name ILIKE $${params.length} OR customer_email ILIKE $${params.length})`,
+      );
     }
     if (start_date) {
-      conditions.push(`created_at >= $${idx++}`);
       params.push(start_date);
+      conditions.push(`created_at >= $${params.length}`);
     }
     if (end_date) {
-      conditions.push(`created_at <= $${idx++}`);
       params.push(end_date);
+      conditions.push(`created_at <= $${params.length}`);
     }
 
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
+    // COUNT query — params tidak berubah
     const countResult = await query(
       `SELECT COUNT(*) FROM orders ${where}`,
       params,
     );
     const total = Number(countResult.rows[0].count);
 
+    // Data query — tambah LIMIT dan OFFSET setelah params filter
+    const dataParams = [...params, limit, offset];
+    const limitIdx = dataParams.length - 1; // index LIMIT
+    const offsetIdx = dataParams.length; // index OFFSET
+
     const dataResult = await query(
-      `SELECT * FROM orders ${where} ORDER BY created_at DESC LIMIT $${idx++} OFFSET $${idx}`,
-      [...params, limit, offset],
+      `SELECT * FROM orders ${where} ORDER BY created_at DESC LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+      dataParams,
     );
 
     res.json({
@@ -613,8 +631,6 @@ export const updateOrderStatus = async (
 
 // ==========================================
 // PATCH /api/admin/orders/:id/tracking (admin)
-// Input resi → otomatis set status SHIPPED
-// Hanya bisa dilakukan saat status PROCESSING
 // ==========================================
 export const updateTracking = async (
   req: Request<{ id: string }, object, UpdateTrackingBody>,
@@ -648,7 +664,6 @@ export const updateTracking = async (
       return;
     }
 
-    // Update resi + status SHIPPED (shipped_at di-set oleh DB trigger)
     const result = await query(
       `UPDATE orders SET
         tracking_number = $1,
@@ -682,8 +697,6 @@ export const updateTracking = async (
 
 // ==========================================
 // PATCH /api/admin/orders/:id/delivered (admin)
-// Admin konfirmasi barang sampai → DELIVERED
-// Hanya bisa dari status SHIPPED
 // ==========================================
 export const markAsDelivered = async (
   req: Request<{ id: string }>,
@@ -708,7 +721,6 @@ export const markAsDelivered = async (
       return;
     }
 
-    // delivered_at di-set otomatis oleh DB trigger
     const result = await query(
       `UPDATE orders SET status = 'DELIVERED' WHERE id = $1 RETURNING *`,
       [req.params.id],
@@ -729,8 +741,6 @@ export const markAsDelivered = async (
 
 // ==========================================
 // PATCH /api/orders/:orderCode/confirm (public)
-// Customer konfirmasi pesanan diterima → DONE
-// Hanya bisa dari status DELIVERED
 // ==========================================
 export const confirmDelivery = async (
   req: Request<{ orderCode: string }>,
@@ -755,7 +765,6 @@ export const confirmDelivery = async (
       return;
     }
 
-    // confirmed_at di-set otomatis oleh DB trigger
     const result = await query(
       `UPDATE orders SET status = 'DONE' WHERE order_code = $1 RETURNING *`,
       [req.params.orderCode],
