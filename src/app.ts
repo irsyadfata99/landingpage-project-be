@@ -9,6 +9,7 @@ import productRoutes from "./routes/product.routes";
 import orderRoutes from "./routes/order.routes";
 import paymentRoutes from "./routes/payment.routes";
 import reviewRoutes from "./routes/review.routes";
+import { getPublicStats } from "./controllers/stats.controller";
 import { getLandingPage } from "./controllers/content.controller";
 
 const app: Application = express();
@@ -44,6 +45,8 @@ app.get("/health", (_req: Request, res: Response) => {
     env: process.env.NODE_ENV,
   });
 });
+
+app.get("/api/stats", getPublicStats);
 
 // ==========================================
 // API ROUTES
