@@ -172,3 +172,25 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+-- ==========================================
+-- MIGRATION: Add secondary CTA to hero_section
+-- ==========================================
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'hero_section' AND column_name = 'secondary_cta_text'
+  ) THEN
+    ALTER TABLE hero_section ADD COLUMN secondary_cta_text VARCHAR(100);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'hero_section' AND column_name = 'secondary_cta_target'
+  ) THEN
+    -- Contoh nilai: '#pricing', '#produk', '/track', atau URL eksternal
+    ALTER TABLE hero_section ADD COLUMN secondary_cta_target VARCHAR(255);
+  END IF;
+END $$;

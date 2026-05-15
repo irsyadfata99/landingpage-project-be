@@ -196,3 +196,28 @@ export interface LandingPageData {
   faqs: FAQ[];
   contact_person: ContactPerson | null;
 }
+
+export interface HeroSection {
+  id: string;
+  headline: string;
+  subheadline: string | null;
+  cta_text: string;
+  image_url: string | null;
+  bg_color: string | null;
+  is_active: boolean;
+  // NEW
+  secondary_cta_text: string | null;
+  secondary_cta_target: string | null;
+  updated_at: Date;
+}
+
+export interface UpdateHeroBody {
+  headline?: string;
+  subheadline?: string;
+  cta_text?: string;
+  bg_color?: string;
+  is_active?: boolean;
+  // NEW
+  secondary_cta_text?: string;
+  secondary_cta_target?: string;
+}

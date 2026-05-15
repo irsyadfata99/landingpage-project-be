@@ -174,7 +174,15 @@ export const updateHero = async (
   try {
     const existing = await query("SELECT * FROM hero_section LIMIT 1");
     const old = existing.rows[0];
-    const { headline, subheadline, cta_text, bg_color, is_active } = req.body;
+    const {
+      headline,
+      subheadline,
+      cta_text,
+      bg_color,
+      is_active,
+      secondary_cta_text,
+      secondary_cta_target,
+    } = req.body;
 
     let image_url = old?.image_url;
     if (req.file) {
@@ -186,8 +194,10 @@ export const updateHero = async (
     let result;
     if (!old) {
       result = await query(
-        `INSERT INTO hero_section (headline, subheadline, cta_text, image_url, bg_color, is_active)
-         VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+        `INSERT INTO hero_section
+           (headline, subheadline, cta_text, image_url, bg_color, is_active,
+            secondary_cta_text, secondary_cta_target)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
         [
           headline,
           subheadline,
@@ -195,14 +205,17 @@ export const updateHero = async (
           image_url,
           bg_color,
           is_active ?? true,
+          secondary_cta_text ?? null,
+          secondary_cta_target ?? null,
         ],
       );
     } else {
       result = await query(
         `UPDATE hero_section SET
-          headline = $1, subheadline = $2, cta_text = $3,
-          image_url = $4, bg_color = $5, is_active = $6
-         WHERE id = $7 RETURNING *`,
+           headline = $1, subheadline = $2, cta_text = $3,
+           image_url = $4, bg_color = $5, is_active = $6,
+           secondary_cta_text = $7, secondary_cta_target = $8
+         WHERE id = $9 RETURNING *`,
         [
           headline ?? old.headline,
           subheadline ?? old.subheadline,
@@ -210,6 +223,12 @@ export const updateHero = async (
           image_url,
           bg_color ?? old.bg_color,
           is_active ?? old.is_active,
+          secondary_cta_text !== undefined
+            ? secondary_cta_text || null
+            : old.secondary_cta_text,
+          secondary_cta_target !== undefined
+            ? secondary_cta_target || null
+            : old.secondary_cta_target,
           old.id,
         ],
       );

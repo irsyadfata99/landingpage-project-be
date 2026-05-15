@@ -31,8 +31,10 @@ export const updateHeroSchema = z.object({
     .regex(/^#[0-9A-Fa-f]{6}$/, "Format warna tidak valid")
     .optional(),
   is_active: z.boolean().optional(),
+  // NEW
+  secondary_cta_text: z.string().max(100).optional(),
+  secondary_cta_target: z.string().max(255).optional(),
 });
-
 // ==========================================
 // PROMO
 // ==========================================
