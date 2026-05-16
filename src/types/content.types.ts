@@ -231,4 +231,24 @@ export interface LandingPageData {
   faqs: FAQ[];
   contact_person: ContactPerson | null;
   trust_badges: TrustBadge[];
+  pain_points: PainPoint[];
 }
+
+export interface PainPoint {
+  id: string;
+  headline: string;
+  items: string[];
+  is_active: boolean;
+  sort_order: number;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface CreatePainPointBody {
+  headline: string;
+  items: string[];
+  is_active?: boolean;
+  sort_order?: number;
+}
+
+export interface UpdatePainPointBody extends Partial<CreatePainPointBody> {}

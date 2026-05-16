@@ -138,4 +138,14 @@ export const createTrustBadgeSchema = z.object({
   is_active: z.boolean().optional(),
 });
 
+export const createPainPointSchema = z.object({
+  headline: z.string().min(3, "Headline minimal 3 karakter").max(255),
+  items: z
+    .array(z.string().min(1, "Item tidak boleh kosong"))
+    .min(1, "Minimal 1 item"),
+  is_active: z.boolean().optional(),
+  sort_order: z.number().int().min(0).optional(),
+});
+
+export const updatePainPointSchema = createPainPointSchema.partial();
 export const updateTrustBadgeSchema = createTrustBadgeSchema.partial();

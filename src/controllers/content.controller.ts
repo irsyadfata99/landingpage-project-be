@@ -36,6 +36,7 @@ export const getLandingPage = async (
       faqs,
       contact,
       trustBadges,
+      painPoints, // BARU
     ] = await Promise.all([
       query("SELECT * FROM site_config LIMIT 1"),
       query("SELECT * FROM hero_section LIMIT 1"),
@@ -53,6 +54,10 @@ export const getLandingPage = async (
       query(
         "SELECT id, label, image_url, sort_order, is_active FROM trust_badges WHERE is_active = TRUE ORDER BY sort_order ASC",
       ),
+      query(
+        // BARU
+        "SELECT * FROM pain_points WHERE is_active = TRUE ORDER BY sort_order ASC",
+      ),
     ]);
 
     res.json({
@@ -67,6 +72,7 @@ export const getLandingPage = async (
         faqs: faqs.rows,
         contact_person: contact.rows[0] ?? null,
         trust_badges: trustBadges.rows,
+        pain_points: painPoints.rows, // BARU
       },
     });
   } catch (err) {

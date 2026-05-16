@@ -128,6 +128,18 @@ import {
   updateTrustBadgeSchema,
 } from "../validators/content.validator";
 
+import {
+  getAllPainPoints,
+  createPainPoint,
+  updatePainPoint,
+  deletePainPoint,
+} from "../controllers/pain_point.controller";
+
+import {
+  createPainPointSchema,
+  updatePainPointSchema,
+} from "../validators/content.validator";
+
 const router = Router();
 
 const uploadFields = multer({ storage: multer.memoryStorage() }).fields([
@@ -340,5 +352,14 @@ router.put(
 );
 router.delete("/trust-badges/:id", deleteTrustBadge);
 router.patch("/trust-badges/:id/toggle", toggleTrustBadge);
+
+router.get("/pain-points", getAllPainPoints);
+router.post("/pain-points", validate(createPainPointSchema), createPainPoint);
+router.put(
+  "/pain-points/:id",
+  validate(updatePainPointSchema),
+  updatePainPoint,
+);
+router.delete("/pain-points/:id", deletePainPoint);
 
 export default router;
