@@ -17,8 +17,12 @@ export const updateSiteConfigSchema = z.object({
   font_url: z.string().url("Format URL font tidak valid").optional(),
   meta_title: z.string().max(255).optional(),
   meta_description: z.string().optional(),
-  meta_pixel_id: z.string().max(50).optional(), // NEW
-  ga4_measurement_id: z.string().max(50).optional(), // NEW
+  meta_pixel_id: z.string().max(50).optional(),
+  ga4_measurement_id: z.string().max(50).optional(),
+  // Closing CTA
+  closing_cta_headline: z.string().max(255).optional(),
+  closing_cta_subtext: z.string().optional(),
+  closing_cta_text: z.string().max(100).optional(),
 });
 
 // ==========================================
@@ -33,10 +37,10 @@ export const updateHeroSchema = z.object({
     .regex(/^#[0-9A-Fa-f]{6}$/, "Format warna tidak valid")
     .optional(),
   is_active: z.boolean().optional(),
-  // NEW
   secondary_cta_text: z.string().max(100).optional(),
   secondary_cta_target: z.string().max(255).optional(),
 });
+
 // ==========================================
 // PROMO
 // ==========================================
@@ -124,3 +128,14 @@ export const updateContactPersonSchema = z.object({
   tiktok_url: z.string().url("Format URL TikTok tidak valid").optional(),
   is_active: z.boolean().optional(),
 });
+
+// ==========================================
+// TRUST BADGES
+// ==========================================
+export const createTrustBadgeSchema = z.object({
+  label: z.string().min(1, "Label wajib diisi").max(100),
+  sort_order: z.number().int().min(0).optional(),
+  is_active: z.boolean().optional(),
+});
+
+export const updateTrustBadgeSchema = createTrustBadgeSchema.partial();

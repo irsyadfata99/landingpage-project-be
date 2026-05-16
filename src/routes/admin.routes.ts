@@ -115,6 +115,19 @@ import {
   deleteReview,
 } from "../controllers/review.controller";
 
+import {
+  getAllTrustBadges,
+  createTrustBadge,
+  updateTrustBadge,
+  deleteTrustBadge,
+  toggleTrustBadge,
+} from "../controllers/trust-badge.controller";
+
+import {
+  createTrustBadgeSchema,
+  updateTrustBadgeSchema,
+} from "../validators/content.validator";
+
 const router = Router();
 
 const uploadFields = multer({ storage: multer.memoryStorage() }).fields([
@@ -311,5 +324,21 @@ router.patch("/vouchers/:id/toggle", toggleVoucher);
 router.get("/reviews", getAllReviews);
 router.patch("/reviews/:id/approve", approveReview);
 router.delete("/reviews/:id", deleteReview);
+
+router.get("/trust-badges", getAllTrustBadges);
+router.post(
+  "/trust-badges",
+  uploadSingle,
+  validate(createTrustBadgeSchema),
+  createTrustBadge,
+);
+router.put(
+  "/trust-badges/:id",
+  uploadSingle,
+  validate(updateTrustBadgeSchema),
+  updateTrustBadge,
+);
+router.delete("/trust-badges/:id", deleteTrustBadge);
+router.patch("/trust-badges/:id/toggle", toggleTrustBadge);
 
 export default router;

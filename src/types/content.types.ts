@@ -10,13 +10,17 @@ export interface SiteConfig {
   favicon_url: string | null;
   primary_color: string;
   secondary_color: string;
-  font_family: string; // nama font Google Fonts, contoh: 'Inter'
-  font_url: string; // URL embed Google Fonts
+  font_family: string;
+  font_url: string;
   meta_title: string;
   meta_description: string;
   og_image_url: string | null;
-  meta_pixel_id: string | null; // NEW
-  ga4_measurement_id: string | null; // NEW
+  meta_pixel_id: string | null;
+  ga4_measurement_id: string | null;
+  // Closing CTA
+  closing_cta_headline: string | null;
+  closing_cta_subtext: string | null;
+  closing_cta_text: string | null;
   updated_at: Date;
 }
 
@@ -29,8 +33,12 @@ export interface UpdateSiteConfigBody {
   meta_title?: string;
   meta_description?: string;
   og_image_url?: string;
-  meta_pixel_id?: string; // NEW
-  ga4_measurement_id?: string; // NEW
+  meta_pixel_id?: string;
+  ga4_measurement_id?: string;
+  // Closing CTA
+  closing_cta_headline?: string;
+  closing_cta_subtext?: string;
+  closing_cta_text?: string;
 }
 
 // --- HERO ---
@@ -42,6 +50,8 @@ export interface HeroSection {
   image_url: string | null;
   bg_color: string | null;
   is_active: boolean;
+  secondary_cta_text: string | null;
+  secondary_cta_target: string | null;
   updated_at: Date;
 }
 
@@ -51,6 +61,8 @@ export interface UpdateHeroBody {
   cta_text?: string;
   bg_color?: string;
   is_active?: boolean;
+  secondary_cta_text?: string;
+  secondary_cta_target?: string;
 }
 
 // --- PROMO ---
@@ -108,7 +120,7 @@ export interface Testimonial {
   customer_name: string;
   customer_photo_url: string | null;
   content: string;
-  rating: number; // 1 - 5
+  rating: number;
   testimonial_date: Date | null;
   is_active: boolean;
   sort_order: number;
@@ -190,6 +202,25 @@ export interface CreateExpeditionBody {
 
 export interface UpdateExpeditionBody extends Partial<CreateExpeditionBody> {}
 
+// --- TRUST BADGES ---
+export interface TrustBadge {
+  id: string;
+  label: string;
+  image_url: string | null;
+  sort_order: number;
+  is_active: boolean;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface CreateTrustBadgeBody {
+  label: string;
+  sort_order?: number;
+  is_active?: boolean;
+}
+
+export interface UpdateTrustBadgeBody extends Partial<CreateTrustBadgeBody> {}
+
 // --- LANDING PAGE (semua section sekaligus untuk public API) ---
 export interface LandingPageData {
   site_config: SiteConfig | null;
@@ -199,29 +230,5 @@ export interface LandingPageData {
   testimonials: Testimonial[];
   faqs: FAQ[];
   contact_person: ContactPerson | null;
-}
-
-export interface HeroSection {
-  id: string;
-  headline: string;
-  subheadline: string | null;
-  cta_text: string;
-  image_url: string | null;
-  bg_color: string | null;
-  is_active: boolean;
-  // NEW
-  secondary_cta_text: string | null;
-  secondary_cta_target: string | null;
-  updated_at: Date;
-}
-
-export interface UpdateHeroBody {
-  headline?: string;
-  subheadline?: string;
-  cta_text?: string;
-  bg_color?: string;
-  is_active?: boolean;
-  // NEW
-  secondary_cta_text?: string;
-  secondary_cta_target?: string;
+  trust_badges: TrustBadge[];
 }

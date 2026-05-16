@@ -66,6 +66,11 @@ export const getLandingPage = async (
 // ==========================================
 // SITE CONFIG
 // ==========================================
+// ==========================================
+// GANTI fungsi updateSiteConfig di content.controller.ts
+// dengan versi ini (sudah include closing_cta fields)
+// ==========================================
+
 export const updateSiteConfig = async (
   req: Request<object, object, UpdateSiteConfigBody>,
   res: Response<ApiResponse>,
@@ -106,18 +111,25 @@ export const updateSiteConfig = async (
       font_url,
       meta_title,
       meta_description,
-      meta_pixel_id, // NEW
-      ga4_measurement_id, // NEW
+      meta_pixel_id,
+      ga4_measurement_id,
+      closing_cta_headline,
+      closing_cta_subtext,
+      closing_cta_text,
     } = req.body;
 
     let result;
     if (!old) {
       result = await query(
         `INSERT INTO site_config
-    (brand_name, logo_url, favicon_url, og_image_url, primary_color, secondary_color,
-     font_family, font_url, meta_title, meta_description,
-     meta_pixel_id, ga4_measurement_id)
-   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+          (brand_name, logo_url, favicon_url, og_image_url,
+           primary_color, secondary_color,
+           font_family, font_url,
+           meta_title, meta_description,
+           meta_pixel_id, ga4_measurement_id,
+           closing_cta_headline, closing_cta_subtext, closing_cta_text)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+         RETURNING *`,
         [
           brand_name,
           logo_url,
@@ -132,17 +144,21 @@ export const updateSiteConfig = async (
           meta_description,
           meta_pixel_id ?? null,
           ga4_measurement_id ?? null,
+          closing_cta_headline ?? null,
+          closing_cta_subtext ?? null,
+          closing_cta_text ?? null,
         ],
       );
     } else {
       result = await query(
         `UPDATE site_config SET
-    brand_name = $1, logo_url = $2, favicon_url = $3, og_image_url = $4,
-    primary_color = $5, secondary_color = $6,
-    font_family = $7, font_url = $8,
-    meta_title = $9, meta_description = $10,
-    meta_pixel_id = $11, ga4_measurement_id = $12
-   WHERE id = $13 RETURNING *`,
+          brand_name = $1, logo_url = $2, favicon_url = $3, og_image_url = $4,
+          primary_color = $5, secondary_color = $6,
+          font_family = $7, font_url = $8,
+          meta_title = $9, meta_description = $10,
+          meta_pixel_id = $11, ga4_measurement_id = $12,
+          closing_cta_headline = $13, closing_cta_subtext = $14, closing_cta_text = $15
+         WHERE id = $16 RETURNING *`,
         [
           brand_name ?? old.brand_name,
           logo_url,
@@ -156,6 +172,15 @@ export const updateSiteConfig = async (
           meta_description ?? old.meta_description,
           meta_pixel_id ?? old.meta_pixel_id,
           ga4_measurement_id ?? old.ga4_measurement_id,
+          closing_cta_headline !== undefined
+            ? closing_cta_headline || null
+            : old.closing_cta_headline,
+          closing_cta_subtext !== undefined
+            ? closing_cta_subtext || null
+            : old.closing_cta_subtext,
+          closing_cta_text !== undefined
+            ? closing_cta_text || null
+            : old.closing_cta_text,
           old.id,
         ],
       );
@@ -171,7 +196,6 @@ export const updateSiteConfig = async (
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
-
 // ==========================================
 // HERO SECTION
 // ==========================================
