@@ -65,6 +65,10 @@ export const createOrder = async (
       notes,
       no_cancel_ack,
       voucher_code,
+      utm_source, // NEW
+      utm_medium, // NEW
+      utm_campaign, // NEW
+      referrer, // NEW
     } = req.body;
 
     if (
@@ -234,6 +238,10 @@ export const createOrder = async (
           bank ?? null,
           notes ?? null,
           true,
+          utm_source ?? null, // NEW
+          utm_medium ?? null, // NEW
+          utm_campaign ?? null, // NEW
+          referrer ?? null, // NEW
         ],
       );
 

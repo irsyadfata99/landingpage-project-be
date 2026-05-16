@@ -106,15 +106,18 @@ export const updateSiteConfig = async (
       font_url,
       meta_title,
       meta_description,
+      meta_pixel_id, // NEW
+      ga4_measurement_id, // NEW
     } = req.body;
 
     let result;
     if (!old) {
       result = await query(
         `INSERT INTO site_config
-          (brand_name, logo_url, favicon_url, og_image_url, primary_color, secondary_color,
-           font_family, font_url, meta_title, meta_description)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+    (brand_name, logo_url, favicon_url, og_image_url, primary_color, secondary_color,
+     font_family, font_url, meta_title, meta_description,
+     meta_pixel_id, ga4_measurement_id)
+   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
         [
           brand_name,
           logo_url,
@@ -127,16 +130,19 @@ export const updateSiteConfig = async (
             "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap",
           meta_title,
           meta_description,
+          meta_pixel_id ?? null,
+          ga4_measurement_id ?? null,
         ],
       );
     } else {
       result = await query(
         `UPDATE site_config SET
-          brand_name = $1, logo_url = $2, favicon_url = $3, og_image_url = $4,
-          primary_color = $5, secondary_color = $6,
-          font_family = $7, font_url = $8,
-          meta_title = $9, meta_description = $10
-         WHERE id = $11 RETURNING *`,
+    brand_name = $1, logo_url = $2, favicon_url = $3, og_image_url = $4,
+    primary_color = $5, secondary_color = $6,
+    font_family = $7, font_url = $8,
+    meta_title = $9, meta_description = $10,
+    meta_pixel_id = $11, ga4_measurement_id = $12
+   WHERE id = $13 RETURNING *`,
         [
           brand_name ?? old.brand_name,
           logo_url,
@@ -148,6 +154,8 @@ export const updateSiteConfig = async (
           font_url ?? old.font_url,
           meta_title ?? old.meta_title,
           meta_description ?? old.meta_description,
+          meta_pixel_id ?? old.meta_pixel_id,
+          ga4_measurement_id ?? old.ga4_measurement_id,
           old.id,
         ],
       );

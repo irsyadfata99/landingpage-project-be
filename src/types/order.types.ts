@@ -68,6 +68,10 @@ export interface Order {
   payment_url: string | null;
   tripay_order_id: string | null; // reference dari Tripay setelah charge
   no_cancel_ack: boolean; // customer acknowledge: tidak bisa cancel/refund
+  utm_source: string | null; // NEW
+  utm_medium: string | null; // NEW
+  utm_campaign: string | null; // NEW
+  referrer: string | null; // NEW
   paid_at: Date | null;
   shipped_at: Date | null;
   delivered_at: Date | null; // di-set saat admin update ke DELIVERED
@@ -116,6 +120,10 @@ export interface CreateOrderBody {
   notes?: string;
   no_cancel_ack: boolean; // wajib true agar order bisa dibuat
   voucher_code?: string; // opsional, kode voucher diskon
+  utm_source?: string; // NEW
+  utm_medium?: string; // NEW
+  utm_campaign?: string; // NEW
+  referrer?: string; // NEW
 }
 
 export interface UpdateOrderStatusBody {

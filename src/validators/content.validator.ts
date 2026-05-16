@@ -17,6 +17,8 @@ export const updateSiteConfigSchema = z.object({
   font_url: z.string().url("Format URL font tidak valid").optional(),
   meta_title: z.string().max(255).optional(),
   meta_description: z.string().optional(),
+  meta_pixel_id: z.string().max(50).optional(), // NEW
+  ga4_measurement_id: z.string().max(50).optional(), // NEW
 });
 
 // ==========================================
