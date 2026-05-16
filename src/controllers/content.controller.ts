@@ -27,22 +27,33 @@ export const getLandingPage = async (
   res: Response<ApiResponse>,
 ): Promise<void> => {
   try {
-    const [siteConfig, hero, promo, pricing, testimonials, faqs, contact] =
-      await Promise.all([
-        query("SELECT * FROM site_config LIMIT 1"),
-        query("SELECT * FROM hero_section LIMIT 1"),
-        query("SELECT * FROM promo_section LIMIT 1"),
-        query(
-          "SELECT * FROM pricing_items WHERE is_active = TRUE ORDER BY sort_order ASC",
-        ),
-        query(
-          "SELECT * FROM testimonials WHERE is_active = TRUE ORDER BY sort_order ASC",
-        ),
-        query(
-          "SELECT * FROM faqs WHERE is_active = TRUE ORDER BY sort_order ASC",
-        ),
-        query("SELECT * FROM contact_person LIMIT 1"),
-      ]);
+    const [
+      siteConfig,
+      hero,
+      promo,
+      pricing,
+      testimonials,
+      faqs,
+      contact,
+      trustBadges,
+    ] = await Promise.all([
+      query("SELECT * FROM site_config LIMIT 1"),
+      query("SELECT * FROM hero_section LIMIT 1"),
+      query("SELECT * FROM promo_section LIMIT 1"),
+      query(
+        "SELECT * FROM pricing_items WHERE is_active = TRUE ORDER BY sort_order ASC",
+      ),
+      query(
+        "SELECT * FROM testimonials WHERE is_active = TRUE ORDER BY sort_order ASC",
+      ),
+      query(
+        "SELECT * FROM faqs WHERE is_active = TRUE ORDER BY sort_order ASC",
+      ),
+      query("SELECT * FROM contact_person LIMIT 1"),
+      query(
+        "SELECT id, label, image_url, sort_order, is_active FROM trust_badges WHERE is_active = TRUE ORDER BY sort_order ASC",
+      ),
+    ]);
 
     res.json({
       success: true,
@@ -55,6 +66,7 @@ export const getLandingPage = async (
         testimonials: testimonials.rows,
         faqs: faqs.rows,
         contact_person: contact.rows[0] ?? null,
+        trust_badges: trustBadges.rows,
       },
     });
   } catch (err) {
